@@ -3,6 +3,7 @@
 #   scripts/tidy.sh                 使用默认构建目录 build/default
 #   scripts/tidy.sh build/release   指定其他构建目录
 #   scripts/tidy.sh --fix           自动修复可修复项(传给 clang-tidy)
+#   scripts/tidy.sh --strict        将告警视为错误(CI 用,有告警即非零退出)
 # 依赖 compile_commands.json,需先 cmake --preset default 配置过。
 set -euo pipefail
 
@@ -19,6 +20,7 @@ build_dir="build/default"
 for arg in "$@"; do
     case "$arg" in
         --fix) extra_args+=("--fix") ;;
+        --strict) extra_args+=("--warnings-as-errors=*") ;;
         *) build_dir="$arg" ;;
     esac
 done

@@ -2,6 +2,7 @@
   "name": "image-viewer",
   "version": "0.1.0",
   "description": "Cross-platform image viewer with archive browsing (BandiView-like).",
+  "builtin-baseline": "930ecc42b512b564571d767f70775d284a6fa307",
   "dependencies": [
     {
       "name": "libarchive",

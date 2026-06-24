@@ -6,13 +6,22 @@ on:
   pull_request:
 
 jobs:
+  format:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install clang-format
+        run: brew install clang-format
+      - name: Check formatting
+        run: scripts/format.sh --check
+
   build-macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install build tools
-        run: brew install ninja pkg-config
+      - name: Install build tools (ninja, pkg-config, llvm for clang-tidy)
+        run: brew install ninja pkg-config llvm
 
       - name: Install Qt (prebuilt)
         uses: jurplel/install-qt-action@v4
@@ -22,6 +31,9 @@ jobs:
 
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
+        with:
+          # 必须与 vcpkg.json 的 builtin-baseline 一致,否则 run-vcpkg 找不到 baseline。
+          vcpkgGitCommitId: 930ecc42b512b564571d767f70775d284a6fa307
 
       - name: Configure
         env:
@@ -30,3 +42,6 @@ jobs:
 
       - name: Build
         run: cmake --build --preset default
+
+      - name: clang-tidy
+        run: CLANG_TIDY="$(brew --prefix llvm)/bin/clang-tidy" scripts/tidy.sh --strict
