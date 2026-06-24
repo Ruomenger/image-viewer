@@ -20,10 +20,7 @@
 
 #include <algorithm>
 
-MainWindow::MainWindow(QWidget* parent)
-    : QMainWindow(parent)
-    , m_view(new ImageView(this))
-{
+MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), m_view(new ImageView(this)) {
     setCentralWidget(m_view);
     setAcceptDrops(true);
     buildMenus();
@@ -32,8 +29,7 @@ MainWindow::MainWindow(QWidget* parent)
 
 MainWindow::~MainWindow() = default;
 
-void MainWindow::buildMenus()
-{
+void MainWindow::buildMenus() {
     QMenu* fileMenu = menuBar()->addMenu(tr("文件(&F)"));
     QAction* openFileAction = fileMenu->addAction(tr("打开图片(&O)…"), this, &MainWindow::openFile);
     openFileAction->setShortcut(QKeySequence::Open);
@@ -49,7 +45,8 @@ void MainWindow::buildMenus()
     QAction* actual = viewMenu->addAction(tr("实际大小"), this, [this] { m_view->actualSize(); });
     actual->setShortcuts({QKeySequence(Qt::ControlModifier | Qt::Key_0), QKeySequence(Qt::Key_1)});
     QAction* zoomIn = viewMenu->addAction(tr("放大"), this, [this] { m_view->zoomIn(); });
-    zoomIn->setShortcuts({QKeySequence::ZoomIn, QKeySequence(Qt::Key_Plus), QKeySequence(Qt::Key_Equal)});
+    zoomIn->setShortcuts(
+        {QKeySequence::ZoomIn, QKeySequence(Qt::Key_Plus), QKeySequence(Qt::Key_Equal)});
     QAction* zoomOut = viewMenu->addAction(tr("缩小"), this, [this] { m_view->zoomOut(); });
     zoomOut->setShortcuts({QKeySequence::ZoomOut, QKeySequence(Qt::Key_Minus)});
 
@@ -58,35 +55,31 @@ void MainWindow::buildMenus()
     prevAction->setShortcuts({QKeySequence(Qt::Key_Left), QKeySequence(Qt::Key_PageUp),
                               QKeySequence(Qt::Key_Backspace)});
     QAction* nextAction = navMenu->addAction(tr("下一张"), this, &MainWindow::next);
-    nextAction->setShortcuts({QKeySequence(Qt::Key_Right), QKeySequence(Qt::Key_PageDown),
-                              QKeySequence(Qt::Key_Space)});
+    nextAction->setShortcuts(
+        {QKeySequence(Qt::Key_Right), QKeySequence(Qt::Key_PageDown), QKeySequence(Qt::Key_Space)});
 }
 
-void MainWindow::openFile()
-{
+void MainWindow::openFile() {
     const QString path = QFileDialog::getOpenFileName(this, tr("打开图片"));
     if (!path.isEmpty())
         openPath(path);
 }
 
-void MainWindow::openFolder()
-{
+void MainWindow::openFolder() {
     const QString path = QFileDialog::getExistingDirectory(this, tr("打开文件夹"));
     if (!path.isEmpty())
         openPath(path);
 }
 
-void MainWindow::openArchive()
-{
-    const QString path = QFileDialog::getOpenFileName(
-        this, tr("打开压缩包"), QString(),
-        tr("压缩包 (*.zip *.cbz *.7z *.cb7 *.rar *.cbr *.tar *.cbt)"));
+void MainWindow::openArchive() {
+    const QString path =
+        QFileDialog::getOpenFileName(this, tr("打开压缩包"), QString(),
+                                     tr("压缩包 (*.zip *.cbz *.7z *.cb7 *.rar *.cbr *.tar *.cbt)"));
     if (!path.isEmpty())
         openPath(path);
 }
 
-void MainWindow::openPath(const QString& path)
-{
+void MainWindow::openPath(const QString& path) {
     const QFileInfo info(path);
     std::unique_ptr<ImageSource> source;
     int initialIndex = 0;
@@ -113,8 +106,7 @@ void MainWindow::openPath(const QString& path)
     showIndex(initialIndex);
 }
 
-void MainWindow::showIndex(int index)
-{
+void MainWindow::showIndex(int index) {
     if (!m_source)
         return;
     const int n = m_source->count();
@@ -133,31 +125,24 @@ void MainWindow::showIndex(int index)
     m_view->setImage(image);
     const QString name = m_source->entryName(index);
     setWindowTitle(tr("%1  (%2/%3) — ImageViewer").arg(name).arg(index + 1).arg(n));
-    statusBar()->showMessage(tr("%1 × %2  ·  %3/%4")
-                                 .arg(image.width())
-                                 .arg(image.height())
-                                 .arg(index + 1)
-                                 .arg(n));
+    statusBar()->showMessage(
+        tr("%1 × %2  ·  %3/%4").arg(image.width()).arg(image.height()).arg(index + 1).arg(n));
 }
 
-void MainWindow::next()
-{
+void MainWindow::next() {
     showIndex(m_index + 1);
 }
 
-void MainWindow::prev()
-{
+void MainWindow::prev() {
     showIndex(m_index - 1);
 }
 
-void MainWindow::dragEnterEvent(QDragEnterEvent* event)
-{
+void MainWindow::dragEnterEvent(QDragEnterEvent* event) {
     if (event->mimeData()->hasUrls())
         event->acceptProposedAction();
 }
 
-void MainWindow::dropEvent(QDropEvent* event)
-{
+void MainWindow::dropEvent(QDropEvent* event) {
     const QList<QUrl> urls = event->mimeData()->urls();
     if (urls.isEmpty())
         return;

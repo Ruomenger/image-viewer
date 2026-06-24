@@ -12,12 +12,9 @@ namespace {
 constexpr double kZoomStep = 1.25;
 constexpr double kMinScale = 0.02;
 constexpr double kMaxScale = 50.0;
-} // namespace
+}  // namespace
 
-ImageView::ImageView(QWidget* parent)
-    : QGraphicsView(parent)
-    , m_scene(new QGraphicsScene(this))
-{
+ImageView::ImageView(QWidget* parent) : QGraphicsView(parent), m_scene(new QGraphicsScene(this)) {
     setScene(m_scene);
     setDragMode(QGraphicsView::ScrollHandDrag);
     setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
@@ -29,8 +26,7 @@ ImageView::ImageView(QWidget* parent)
     setFrameShape(QFrame::NoFrame);
 }
 
-void ImageView::setImage(const QImage& image)
-{
+void ImageView::setImage(const QImage& image) {
     m_scene->clear();
     m_item = m_scene->addPixmap(QPixmap::fromImage(image));
     m_scene->setSceneRect(m_item->boundingRect());
@@ -38,8 +34,7 @@ void ImageView::setImage(const QImage& image)
     fitToWindow();
 }
 
-void ImageView::fitToWindow()
-{
+void ImageView::fitToWindow() {
     if (!m_item)
         return;
     fitInView(m_item, Qt::KeepAspectRatio);
@@ -47,8 +42,7 @@ void ImageView::fitToWindow()
     m_fitMode = true;
 }
 
-void ImageView::actualSize()
-{
+void ImageView::actualSize() {
     if (!m_item)
         return;
     resetTransform();
@@ -56,18 +50,15 @@ void ImageView::actualSize()
     m_fitMode = false;
 }
 
-void ImageView::zoomIn()
-{
+void ImageView::zoomIn() {
     zoomBy(kZoomStep);
 }
 
-void ImageView::zoomOut()
-{
+void ImageView::zoomOut() {
     zoomBy(1.0 / kZoomStep);
 }
 
-void ImageView::zoomBy(double factor)
-{
+void ImageView::zoomBy(double factor) {
     if (!m_item)
         return;
     const double target = m_scale * factor;
@@ -78,8 +69,7 @@ void ImageView::zoomBy(double factor)
     scale(factor, factor);
 }
 
-void ImageView::wheelEvent(QWheelEvent* event)
-{
+void ImageView::wheelEvent(QWheelEvent* event) {
     if (event->angleDelta().y() == 0) {
         QGraphicsView::wheelEvent(event);
         return;
@@ -88,8 +78,7 @@ void ImageView::wheelEvent(QWheelEvent* event)
     event->accept();
 }
 
-void ImageView::resizeEvent(QResizeEvent* event)
-{
+void ImageView::resizeEvent(QResizeEvent* event) {
     QGraphicsView::resizeEvent(event);
     if (m_fitMode)
         fitToWindow();

@@ -3,15 +3,18 @@
 #include <QCollator>
 
 #include <algorithm>
+#include <utility>
 
 #include <archive.h>
 #include <archive_entry.h>
 
 namespace {
 
+// libarchive 读取缓冲块大小(用 size_t 字面量避免 int 乘法溢出)。
+constexpr size_t kReadBlockSize = size_t{64} * 1024;
+
 // libarchive returns UTF-8 entry names when it can; fall back to local 8-bit.
-QString entryPath(struct archive_entry* entry)
-{
+QString entryPath(struct archive_entry* entry) {
     if (const char* utf8 = archive_entry_pathname_utf8(entry))
         return QString::fromUtf8(utf8);
     if (const char* raw = archive_entry_pathname(entry))
@@ -19,23 +22,20 @@ QString entryPath(struct archive_entry* entry)
     return {};
 }
 
-struct archive* openForRead(const QString& path)
-{
+struct archive* openForRead(const QString& path) {
     struct archive* a = archive_read_new();
     archive_read_support_filter_all(a);
     archive_read_support_format_all(a);
-    if (archive_read_open_filename(a, path.toUtf8().constData(), 64 * 1024) != ARCHIVE_OK) {
+    if (archive_read_open_filename(a, path.toUtf8().constData(), kReadBlockSize) != ARCHIVE_OK) {
         archive_read_free(a);
         return nullptr;
     }
     return a;
 }
 
-} // namespace
+}  // namespace
 
-ArchiveSource::ArchiveSource(const QString& archivePath)
-    : m_path(archivePath)
-{
+ArchiveSource::ArchiveSource(QString archivePath) : m_path(std::move(archivePath)) {
     struct archive* a = openForRead(m_path);
     if (!a)
         return;
@@ -52,21 +52,18 @@ ArchiveSource::ArchiveSource(const QString& archivePath)
     QCollator collator;
     collator.setNumericMode(true);
     collator.setCaseSensitivity(Qt::CaseInsensitive);
-    std::sort(m_names.begin(), m_names.end(),
-              [&collator](const QString& x, const QString& y) {
-                  return collator.compare(x, y) < 0;
-              });
+    std::ranges::sort(m_names, [&collator](const QString& x, const QString& y) {
+        return collator.compare(x, y) < 0;
+    });
 }
 
-QString ArchiveSource::entryName(int index) const
-{
+QString ArchiveSource::entryName(int index) const {
     if (index < 0 || index >= m_names.size())
         return {};
     return m_names.at(index);
 }
 
-QByteArray ArchiveSource::readEntry(int index) const
-{
+QByteArray ArchiveSource::readEntry(int index) const {
     if (index < 0 || index >= m_names.size())
         return {};
     const QString target = m_names.at(index);
@@ -86,8 +83,8 @@ QByteArray ArchiveSource::readEntry(int index) const
         const la_int64_t declaredSize = archive_entry_size(entry);
         if (declaredSize > 0) {
             data.resize(static_cast<qsizetype>(declaredSize));
-            const la_ssize_t read = archive_read_data(a, data.data(),
-                                                      static_cast<size_t>(declaredSize));
+            const la_ssize_t read =
+                archive_read_data(a, data.data(), static_cast<size_t>(declaredSize));
             if (read < 0)
                 data.clear();
             else if (read < declaredSize)

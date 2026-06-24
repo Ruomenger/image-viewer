@@ -1,0 +1,23 @@
+# clang-tidy 配置：聚焦 bug、性能、现代化与可读性，关掉对本项目噪音较大的若干检查。
+# 只诊断 src/ 下的头文件(HeaderFilterRegex)，不碰 Qt / vcpkg 的第三方头。
+---
+Checks: >
+  -*,
+  clang-analyzer-*,
+  bugprone-*,
+  performance-*,
+  modernize-*,
+  readability-*,
+  -modernize-use-trailing-return-type,
+  -modernize-avoid-c-arrays,
+  -modernize-use-nodiscard,
+  -readability-magic-numbers,
+  -readability-identifier-length,
+  -readability-braces-around-statements,
+  -readability-implicit-bool-conversion,
+  -readability-redundant-access-specifiers,
+  -bugprone-easily-swappable-parameters
+
+WarningsAsErrors: ''
+HeaderFilterRegex: 'src/.*'
+FormatStyle: file

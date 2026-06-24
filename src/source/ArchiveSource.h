@@ -12,7 +12,7 @@
 // first version; a later pass can add a sequential fast-path + LRU cache.
 class ArchiveSource : public ImageSource {
 public:
-    explicit ArchiveSource(const QString& archivePath);
+    explicit ArchiveSource(QString archivePath);
 
     int count() const override { return static_cast<int>(m_names.size()); }
     QString entryName(int index) const override;
