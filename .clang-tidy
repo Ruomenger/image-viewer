@@ -4,6 +4,7 @@
 Checks: >
   -*,
   clang-analyzer-*,
+  -clang-analyzer-webkit.*,
   bugprone-*,
   performance-*,
   modernize-*,

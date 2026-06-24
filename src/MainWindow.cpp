@@ -20,7 +20,8 @@
 
 #include <algorithm>
 
-MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), m_view(new ImageView(this)) {
+MainWindow::MainWindow(QWidget* parent)
+    : QMainWindow(parent), m_view(new ImageView(this)), m_prefetcher(m_cache) {
     setCentralWidget(m_view);
     setAcceptDrops(true);
     buildMenus();
@@ -81,17 +82,17 @@ void MainWindow::openArchive() {
 
 void MainWindow::openPath(const QString& path) {
     const QFileInfo info(path);
-    std::unique_ptr<ImageSource> source;
+    std::shared_ptr<ImageSource> source;
     int initialIndex = 0;
 
     if (info.isDir()) {
-        source = std::make_unique<FolderSource>(path);
+        source = std::make_shared<FolderSource>(path);
     } else if (ImageSource::isArchive(path)) {
-        source = std::make_unique<ArchiveSource>(path);
+        source = std::make_shared<ArchiveSource>(path);
     } else if (info.isFile()) {
-        auto folder = std::make_unique<FolderSource>(info.absolutePath());
+        auto folder = std::make_shared<FolderSource>(info.absolutePath());
         initialIndex = std::max(0, folder->indexOf(info.absoluteFilePath()));
-        source = std::move(folder);
+        source = folder;
     } else {
         statusBar()->showMessage(tr("路径不存在: %1").arg(path), 4000);
         return;
@@ -102,8 +103,9 @@ void MainWindow::openPath(const QString& path) {
         return;
     }
 
-    m_source = std::move(source);
-    m_cache.clear();  // 索引含义随来源改变,旧缓存作废
+    m_source = source;
+    m_cache.clear();                   // 索引含义随来源改变,旧缓存作废
+    m_prefetcher.setSource(m_source);  // 同时作废旧来源的在途预读任务
     showIndex(initialIndex);
 }
 
@@ -132,6 +134,8 @@ void MainWindow::showIndex(int index) {
     setWindowTitle(tr("%1  (%2/%3) — ImageViewer").arg(name).arg(index + 1).arg(n));
     statusBar()->showMessage(
         tr("%1 × %2  ·  %3/%4").arg(image.width()).arg(image.height()).arg(index + 1).arg(n));
+
+    m_prefetcher.prefetchAround(index);  // 后台预解码相邻页
 }
 
 void MainWindow::next() {

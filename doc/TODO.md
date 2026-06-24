@@ -35,7 +35,7 @@
 > 目标：翻页流畅不卡顿（命中缓存时 <50ms）。
 
 - [x] 解码结果 **LRU 缓存**（按字节预算，上限可配）— `ImageCache`，已接入 `MainWindow`
-- [ ] **邻页异步预读**（`QThreadPool`/`QtConcurrent`），快速翻页时取消过期任务
+- [x] **邻页异步预读**（`QThreadPool`），快速翻页/切换来源时取消过期任务 — `Prefetcher`
 - [ ] Archive **顺序读快路径**：避免每次 `readEntry` O(n) 重开扫描，建立 entry 索引
 - [ ] EXIF 方向自动旋转
 - [ ] 单测：缓存淘汰、预读命中、Archive 顺序读正确性

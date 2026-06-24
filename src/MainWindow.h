@@ -5,6 +5,7 @@
 #include <memory>
 
 #include "cache/ImageCache.h"
+#include "cache/Prefetcher.h"
 
 class ImageView;
 class ImageSource;
@@ -35,7 +36,8 @@ private:
     void showIndex(int index);
 
     ImageView* m_view = nullptr;
-    std::unique_ptr<ImageSource> m_source;
-    ImageCache m_cache;  // 解码结果缓存,切换来源时清空
+    std::shared_ptr<ImageSource> m_source;  // shared:预读任务也会持有
+    ImageCache m_cache;                     // 解码结果缓存,切换来源时清空
+    Prefetcher m_prefetcher;                // 须声明在 m_cache 之后(析构先于 m_cache)
     int m_index = 0;
 };
