@@ -37,15 +37,20 @@ jobs:
           # 必须与 vcpkg.json 的 builtin-baseline 一致,否则 run-vcpkg 找不到 baseline。
           vcpkgGitCommitId: 930ecc42b512b564571d767f70775d284a6fa307
 
+      # 缓存键带上 runner 镜像版本:镜像(编译器/SDK)一更新,vcpkg 的 ABI 哈希就变、
+      # 旧预编译包无法复用;若键不含版本,旧键不可变会导致「永久未命中」。
+      - name: Compute vcpkg cache tag
+        run: echo "VCPKG_CACHE_TAG=${ImageOS:-osx}-${ImageVersion:-0}" >> "$GITHUB_ENV"
+
       # 缓存 vcpkg 的二进制缓存(按 ABI 哈希寻址的预编译包),命中后跳过 libarchive 编译。
       # 用自有 files 缓存目录,见下方 Configure 的 VCPKG_BINARY_SOURCES。
       - name: Cache vcpkg binary cache
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/vcpkg_binary_cache
-          key: vcpkg-bin-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          key: vcpkg-${{ runner.os }}-${{ env.VCPKG_CACHE_TAG }}-${{ hashFiles('vcpkg.json') }}
           restore-keys: |
-            vcpkg-bin-${{ runner.os }}-
+            vcpkg-${{ runner.os }}-${{ env.VCPKG_CACHE_TAG }}-
 
       - name: Configure
         env:
