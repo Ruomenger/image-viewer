@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: brew install ninja pkg-config
+
+      - name: Install Qt (prebuilt)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.*'
+          cache: true
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+
+      - name: Configure
+        env:
+          QT_ROOT: ${{ env.QT_ROOT_DIR }}
+        run: cmake --preset default
+
+      - name: Build
+        run: cmake --build --preset default

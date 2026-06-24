@@ -1,0 +1,11 @@
+{
+  "name": "image-viewer",
+  "version": "0.1.0",
+  "description": "Cross-platform image viewer with archive browsing (BandiView-like).",
+  "dependencies": [
+    {
+      "name": "libarchive",
+      "features": [ "bzip2", "lzma", "zstd" ]
+    }
+  ]
+}
