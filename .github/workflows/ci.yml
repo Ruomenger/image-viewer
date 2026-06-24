@@ -26,7 +26,9 @@ jobs:
       - name: Install Qt (prebuilt)
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.8.*'
+          # 与本地一致(6.11)。6.8 的 QtGui 会链接 AGL,而 AGL 已从新版 macOS SDK 移除,
+          # 在 macos-latest(Xcode 26 SDK)上会报 "framework 'AGL' not found"。
+          version: '6.11.*'
           cache: true
 
       - name: Setup vcpkg
