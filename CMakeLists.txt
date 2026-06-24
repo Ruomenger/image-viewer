@@ -10,27 +10,30 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-# Qt comes from a prebuilt install (Homebrew / aqt). Point CMAKE_PREFIX_PATH at it
-# (see README / CMakePresets.json — usually $env{QT_ROOT}).
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
-
-# Everything else comes from vcpkg (manifest mode, see vcpkg.json).
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Test)
 find_package(LibArchive REQUIRED)
 
-add_executable(image-viewer
-    src/main.cpp
-    src/MainWindow.cpp
-    src/ImageView.cpp
+# Testable core (no GUI): the image-source abstraction and its
+# folder / archive implementations. Linked by both the app and the tests.
+add_library(viewer-core STATIC
     src/source/ImageSource.cpp
     src/source/FolderSource.cpp
     src/source/ArchiveSource.cpp
 )
-
-target_include_directories(image-viewer PRIVATE src)
-target_link_libraries(image-viewer PRIVATE
-    Qt6::Widgets
+target_include_directories(viewer-core PUBLIC src)
+target_link_libraries(viewer-core PUBLIC
+    Qt6::Core
+    Qt6::Gui
     LibArchive::LibArchive
 )
+
+# GUI application.
+add_executable(image-viewer
+    src/main.cpp
+    src/MainWindow.cpp
+    src/ImageView.cpp
+)
+target_link_libraries(image-viewer PRIVATE viewer-core Qt6::Widgets)
 
 if(APPLE)
     set_target_properties(image-viewer PROPERTIES
@@ -38,4 +41,11 @@ if(APPLE)
         MACOSX_BUNDLE_BUNDLE_NAME "ImageViewer"
         MACOSX_BUNDLE_GUI_IDENTIFIER "com.github.image-viewer"
     )
+endif()
+
+# Tests (Qt Test). Disable with -DBUILD_TESTING=OFF.
+option(BUILD_TESTING "Build unit tests" ON)
+if(BUILD_TESTING)
+    enable_testing()
+    add_subdirectory(test)
 endif()

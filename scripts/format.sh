@@ -12,10 +12,15 @@ if ! command -v "$CLANG_FORMAT" >/dev/null 2>&1; then
     exit 1
 fi
 
+search_dirs=()
+for d in src test; do
+    [[ -d "$d" ]] && search_dirs+=("$d")
+done
+
 files=()
 while IFS= read -r f; do
     files+=("$f")
-done < <(find src \( -name '*.cpp' -o -name '*.h' \) | sort)
+done < <(find "${search_dirs[@]}" \( -name '*.cpp' -o -name '*.h' \) | sort)
 if [[ ${#files[@]} -eq 0 ]]; then
     echo "src/ 下没有 C++ 源码" >&2
     exit 0

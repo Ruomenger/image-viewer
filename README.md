@@ -51,6 +51,20 @@ open -a ./build/default/image-viewer.app  ~/Pictures/example.zip
 
 Use **release** instead of **default** for an optimized build.
 
+## Tests
+
+Unit tests use **Qt Test** and run via CTest:
+
+```bash
+cmake --build --preset default          # tests build alongside the app
+ctest --test-dir build/default --output-on-failure
+```
+
+They cover the testable core (`viewer-core`): extension detection, natural-order
+sorting, non-image filtering, `indexOf`, and archive/folder `readEntry` decoding —
+using on-the-fly generated PNGs and zips (`test/support/TestData`). Disable with
+`-DBUILD_TESTING=OFF`.
+
 ## Usage
 
 - **File ▸ Open Image / Open Folder / Open Archive**, or drag a file/folder onto the window,
@@ -67,14 +81,16 @@ src/
   main.cpp                 entry point
   MainWindow.{h,cpp}       menus, navigation, drag&drop, open-path dispatch
   ImageView.{h,cpp}        QGraphicsView: smooth zoom / pan / fit
-  source/
+  source/                  -> built into the `viewer-core` static library
     ImageSource.h          abstract: count() / entryName() / readEntry()
     FolderSource.{h,cpp}   images in a directory (natural sort)
     ArchiveSource.{h,cpp}  images in an archive via libarchive
+test/                      Qt Test unit tests for viewer-core
 ```
 
-`ImageSource` decouples "where the bytes come from" from "how they're shown", so a
-folder and an archive look identical to the viewer.
+`source/` is compiled into a GUI-free **`viewer-core`** static library that both the
+app and the tests link against. `ImageSource` decouples "where the bytes come from"
+from "how they're shown", so a folder and an archive look identical to the viewer.
 
 ## Roadmap
 

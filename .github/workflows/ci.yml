@@ -43,5 +43,8 @@ jobs:
       - name: Build
         run: cmake --build --preset default
 
+      - name: Test
+        run: ctest --test-dir build/default --output-on-failure
+
       - name: clang-tidy
         run: CLANG_TIDY="$(brew --prefix llvm)/bin/clang-tidy" scripts/tidy.sh --strict
