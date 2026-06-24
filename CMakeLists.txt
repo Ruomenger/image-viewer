@@ -19,6 +19,7 @@ add_library(viewer-core STATIC
     src/source/ImageSource.cpp
     src/source/FolderSource.cpp
     src/source/ArchiveSource.cpp
+    src/cache/ImageCache.cpp
 )
 target_include_directories(viewer-core PUBLIC src)
 target_link_libraries(viewer-core PUBLIC

@@ -103,6 +103,7 @@ void MainWindow::openPath(const QString& path) {
     }
 
     m_source = std::move(source);
+    m_cache.clear();  // 索引含义随来源改变,旧缓存作废
     showIndex(initialIndex);
 }
 
@@ -116,10 +117,14 @@ void MainWindow::showIndex(int index) {
     index = ((index % n) + n) % n;  // wrap around both ends
     m_index = index;
 
-    const QImage image = QImage::fromData(m_source->readEntry(index));
+    QImage image = m_cache.get(index);
     if (image.isNull()) {
-        statusBar()->showMessage(tr("无法解码: %1").arg(m_source->entryName(index)), 4000);
-        return;
+        image = QImage::fromData(m_source->readEntry(index));
+        if (image.isNull()) {
+            statusBar()->showMessage(tr("无法解码: %1").arg(m_source->entryName(index)), 4000);
+            return;
+        }
+        m_cache.insert(index, image);
     }
 
     m_view->setImage(image);

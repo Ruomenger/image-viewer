@@ -4,6 +4,8 @@
 
 #include <memory>
 
+#include "cache/ImageCache.h"
+
 class ImageView;
 class ImageSource;
 
@@ -34,5 +36,6 @@ private:
 
     ImageView* m_view = nullptr;
     std::unique_ptr<ImageSource> m_source;
+    ImageCache m_cache;  // 解码结果缓存,切换来源时清空
     int m_index = 0;
 };
