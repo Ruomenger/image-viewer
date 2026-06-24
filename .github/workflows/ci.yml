@@ -38,17 +38,20 @@ jobs:
           vcpkgGitCommitId: 930ecc42b512b564571d767f70775d284a6fa307
 
       # 缓存 vcpkg 的二进制缓存(按 ABI 哈希寻址的预编译包),命中后跳过 libarchive 编译。
+      # 用自有 files 缓存目录,见下方 Configure 的 VCPKG_BINARY_SOURCES。
       - name: Cache vcpkg binary cache
         uses: actions/cache@v4
         with:
-          path: ~/.cache/vcpkg/archives
-          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          path: ${{ github.workspace }}/vcpkg_binary_cache
+          key: vcpkg-bin-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
           restore-keys: |
-            vcpkg-${{ runner.os }}-
+            vcpkg-bin-${{ runner.os }}-
 
       - name: Configure
         env:
           QT_ROOT: ${{ env.QT_ROOT_DIR }}
+          # 覆盖 run-vcpkg 默认的 "clear;x-gha":改用我们用 actions/cache 持久化的 files 缓存。
+          VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/vcpkg_binary_cache,readwrite"
         run: cmake --preset default
 
       - name: Build
