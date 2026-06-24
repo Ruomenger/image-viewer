@@ -12,6 +12,9 @@ Stack: **C++20 · Qt 6 (Widgets + QGraphicsView) · CMake + vcpkg**. Currently m
 Windows/Linux come later. Qt is consumed as a **prebuilt** install; vcpkg (manifest mode)
 provides everything else.
 
+Full design in `doc/DESIGN.md`; the milestone/iteration plan (what to do next) in
+`doc/TODO.md` — consult it before starting feature work.
+
 ## Build / run / test
 
 Requires two environment variables (the CMake preset reads them):
