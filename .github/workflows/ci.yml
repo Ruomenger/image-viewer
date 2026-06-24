@@ -35,6 +35,15 @@ jobs:
           # 必须与 vcpkg.json 的 builtin-baseline 一致,否则 run-vcpkg 找不到 baseline。
           vcpkgGitCommitId: 930ecc42b512b564571d767f70775d284a6fa307
 
+      # 缓存 vcpkg 的二进制缓存(按 ABI 哈希寻址的预编译包),命中后跳过 libarchive 编译。
+      - name: Cache vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/vcpkg/archives
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
+
       - name: Configure
         env:
           QT_ROOT: ${{ env.QT_ROOT_DIR }}
