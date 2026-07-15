@@ -9,6 +9,15 @@
 
 FolderSource::FolderSource(const QString& dirPath) {
     const QDir dir(dirPath);
+    if (!dir.exists()) {
+        m_openError = QStringLiteral("文件夹不存在");
+        return;
+    }
+    if (!dir.isReadable()) {
+        m_openError = QStringLiteral("没有读取文件夹的权限");
+        return;
+    }
+
     const QFileInfoList entries = dir.entryInfoList(QDir::Files, QDir::NoSort);
     for (const QFileInfo& info : entries) {
         if (ImageSource::isSupportedImage(info.fileName()))

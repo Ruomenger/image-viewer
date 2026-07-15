@@ -13,6 +13,7 @@ private slots:
     void naturalSortAndFilter();
     void indexOfFindsFile();
     void readEntryDecodes();
+    void reportsOpenErrorForMissingDir();
 };
 
 void TestFolderSource::naturalSortAndFilter() {
@@ -60,6 +61,19 @@ void TestFolderSource::readEntryDecodes() {
     QVERIFY(!image.isNull());
     QCOMPARE(image.width(), 8);
     QCOMPARE(image.height(), 6);
+}
+
+void TestFolderSource::reportsOpenErrorForMissingDir() {
+    const FolderSource missing(QStringLiteral("/no/such/dir"));
+    QCOMPARE(missing.count(), 0);
+    QVERIFY(!missing.openError().isEmpty());
+
+    // 存在但没有图片的文件夹:不算打开失败,openError 为空。
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const FolderSource empty(dir.path());
+    QCOMPARE(empty.count(), 0);
+    QVERIFY(empty.openError().isEmpty());
 }
 
 QTEST_GUILESS_MAIN(TestFolderSource)
