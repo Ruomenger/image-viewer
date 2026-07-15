@@ -8,6 +8,8 @@
 #include <QPixmap>
 #include <QWheelEvent>
 
+#include <algorithm>
+
 namespace {
 constexpr double kZoomStep = 1.25;
 constexpr double kMinScale = 0.02;
@@ -61,12 +63,14 @@ void ImageView::zoomOut() {
 void ImageView::zoomBy(double factor) {
     if (!m_item)
         return;
-    const double target = m_scale * factor;
-    if (target < kMinScale || target > kMaxScale)
+    // 越界时贴到边界而不是直接拒绝,连续缩放才能真正到达极限值。
+    const double target = std::clamp(m_scale * factor, kMinScale, kMaxScale);
+    if (qFuzzyCompare(target, m_scale))
         return;
+    const double applied = target / m_scale;
     m_scale = target;
     m_fitMode = false;
-    scale(factor, factor);
+    scale(applied, applied);
 }
 
 void ImageView::wheelEvent(QWheelEvent* event) {
