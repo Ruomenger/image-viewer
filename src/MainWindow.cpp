@@ -1,15 +1,11 @@
 #include "MainWindow.h"
 
 #include "ImageView.h"
-#include "source/ArchiveSource.h"
-#include "source/FolderSource.h"
-#include "source/ImageSource.h"
 
 #include <QAction>
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QFileDialog>
-#include <QFileInfo>
 #include <QImage>
 #include <QKeySequence>
 #include <QMenu>
@@ -18,17 +14,12 @@
 #include <QStatusBar>
 #include <QUrl>
 
-#include <algorithm>
-
-MainWindow::MainWindow(QWidget* parent)
-    : QMainWindow(parent), m_view(new ImageView(this)), m_prefetcher(m_cache) {
+MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), m_view(new ImageView(this)) {
     setCentralWidget(m_view);
     setAcceptDrops(true);
     buildMenus();
     statusBar()->showMessage(tr("打开图片、文件夹或压缩包以开始"));
 }
-
-MainWindow::~MainWindow() = default;
 
 void MainWindow::buildMenus() {
     QMenu* fileMenu = menuBar()->addMenu(tr("文件(&F)"));
@@ -81,69 +72,43 @@ void MainWindow::openArchive() {
 }
 
 void MainWindow::openPath(const QString& path) {
-    const QFileInfo info(path);
-    std::shared_ptr<ImageSource> source;
-    int initialIndex = 0;
-
-    if (info.isDir()) {
-        source = std::make_shared<FolderSource>(path);
-    } else if (ImageSource::isArchive(path)) {
-        source = std::make_shared<ArchiveSource>(path);
-    } else if (info.isFile()) {
-        auto folder = std::make_shared<FolderSource>(info.absolutePath());
-        initialIndex = std::max(0, folder->indexOf(info.absoluteFilePath()));
-        source = folder;
-    } else {
-        statusBar()->showMessage(tr("路径不存在: %1").arg(path), 4000);
+    QString error;
+    if (!m_browser.open(path, &error)) {
+        statusBar()->showMessage(tr("无法打开 %1:%2").arg(path, error), 4000);
         return;
     }
-
-    if (!source || source->count() == 0) {
-        statusBar()->showMessage(tr("没有可显示的图片: %1").arg(path), 4000);
-        return;
-    }
-
-    m_source = source;
-    m_cache.clear();                   // 索引含义随来源改变,旧缓存作废
-    m_prefetcher.setSource(m_source);  // 同时作废旧来源的在途预读任务
-    showIndex(initialIndex);
+    showCurrent();
 }
 
-void MainWindow::showIndex(int index) {
-    if (!m_source)
-        return;
-    const int n = m_source->count();
-    if (n == 0)
-        return;
+void MainWindow::showCurrent() {
+    const QImage image = m_browser.currentImage();
+    const QString name = m_browser.currentName();
 
-    index = ((index % n) + n) % n;  // wrap around both ends
-    m_index = index;
-
-    QImage image = m_cache.get(index);
     if (image.isNull()) {
-        image = QImage::fromData(m_source->readEntry(index));
-        if (image.isNull()) {
-            statusBar()->showMessage(tr("无法解码: %1").arg(m_source->entryName(index)), 4000);
-            return;
-        }
-        m_cache.insert(index, image);
+        statusBar()->showMessage(tr("无法解码: %1").arg(name), 4000);
+        return;
     }
 
+    const int position = m_browser.currentIndex() + 1;
+    const int total = m_browser.count();
     m_view->setImage(image);
-    const QString name = m_source->entryName(index);
-    setWindowTitle(tr("%1  (%2/%3) — ImageViewer").arg(name).arg(index + 1).arg(n));
+    setWindowTitle(tr("%1  (%2/%3) — ImageViewer").arg(name).arg(position).arg(total));
     statusBar()->showMessage(
-        tr("%1 × %2  ·  %3/%4").arg(image.width()).arg(image.height()).arg(index + 1).arg(n));
-
-    m_prefetcher.prefetchAround(index);  // 后台预解码相邻页
+        tr("%1 × %2  ·  %3/%4").arg(image.width()).arg(image.height()).arg(position).arg(total));
 }
 
 void MainWindow::next() {
-    showIndex(m_index + 1);
+    if (!m_browser.hasSource())
+        return;
+    m_browser.next();
+    showCurrent();
 }
 
 void MainWindow::prev() {
-    showIndex(m_index - 1);
+    if (!m_browser.hasSource())
+        return;
+    m_browser.prev();
+    showCurrent();
 }
 
 void MainWindow::dragEnterEvent(QDragEnterEvent* event) {

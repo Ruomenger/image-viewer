@@ -1,11 +1,13 @@
 #include "cache/Prefetcher.h"
 
 #include "cache/ImageCache.h"
+#include "decode/ImageDecoder.h"
 #include "source/ImageSource.h"
 
 #include <QImage>
 #include <QMutexLocker>
 #include <QRunnable>
+#include <QSet>
 
 namespace {
 // 把任意整数索引规整到 [0, n)(n > 0),实现环绕。
@@ -14,8 +16,8 @@ int wrapIndex(int index, int n) {
 }
 }  // namespace
 
-Prefetcher::Prefetcher(ImageCache& cache, int radius)
-    : m_cache(cache), m_radius(radius > 0 ? radius : 1) {
+Prefetcher::Prefetcher(ImageCache& cache, int ahead, int behind)
+    : m_cache(cache), m_ahead(ahead > 0 ? ahead : 1), m_behind(behind >= 0 ? behind : 0) {
     m_pool.setMaxThreadCount(2);  // 后台预读,不抢满 CPU
 }
 
@@ -48,14 +50,26 @@ void Prefetcher::prefetchAround(int currentIndex) {
     if (n <= 1)
         return;
 
+    const quint64 generation = m_cache.generation();
     m_pool.clear();  // 丢弃尚未开始的过期任务,只保留当前邻域
-    for (int d = 1; d <= m_radius; ++d) {
-        submit(wrapIndex(currentIndex + d, n), source, epoch);
-        submit(wrapIndex(currentIndex - d, n), source, epoch);
-    }
+
+    // 先排主导方向(向前),再排向后;小来源环绕可能重叠,去重。
+    QSet<int> queued{wrapIndex(currentIndex, n)};  // 当前页不预读
+    const auto enqueue = [&](int rawIndex) {
+        const int index = wrapIndex(rawIndex, n);
+        if (queued.contains(index))
+            return;
+        queued.insert(index);
+        submit(index, source, epoch, generation);
+    };
+    for (int d = 1; d <= m_ahead; ++d)
+        enqueue(currentIndex + d);
+    for (int d = 1; d <= m_behind; ++d)
+        enqueue(currentIndex - d);
 }
 
-void Prefetcher::submit(int index, const std::shared_ptr<ImageSource>& source, int epoch) {
+void Prefetcher::submit(int index, const std::shared_ptr<ImageSource>& source, int epoch,
+                        quint64 generation) {
     if (m_cache.contains(index))
         return;
 
@@ -63,17 +77,17 @@ void Prefetcher::submit(int index, const std::shared_ptr<ImageSource>& source, i
     QAtomicInt* epochPtr = &m_epoch;
 
     // 按值捕获 source:lambda 持有 shared_ptr 副本,保证来源在解码期间存活。
-    m_pool.start(QRunnable::create([cache, epochPtr, source, index, epoch] {
+    m_pool.start(QRunnable::create([cache, epochPtr, source, index, epoch, generation] {
         if (epochPtr->loadAcquire() != epoch)
-            return;
+            return;  // epoch 校验只是省掉无谓的读取/解码;正确性由代次校验兜底
         if (cache->contains(index))
             return;
         const QByteArray bytes = source->readEntry(index);
         if (epochPtr->loadAcquire() != epoch)
-            return;  // 解码前再查,快速跳过已作废任务
-        const QImage image = QImage::fromData(bytes);
-        if (image.isNull() || epochPtr->loadAcquire() != epoch)
             return;
-        cache->insert(index, image);
+        const QImage image = decodeImage(bytes);
+        if (image.isNull())
+            return;
+        cache->insertIfGeneration(generation, index, image);
     }));
 }

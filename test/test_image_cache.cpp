@@ -20,6 +20,7 @@ private slots:
     void getRefreshesRecency();
     void oversizedNotCached();
     void clearResets();
+    void generationGuardsStaleInsert();
 };
 
 void TestImageCache::hitAndMiss() {
@@ -80,6 +81,20 @@ void TestImageCache::clearResets() {
     QCOMPARE(cache.count(), 0);
     QCOMPARE(cache.totalBytes(), qint64(0));
     QVERIFY(cache.get(0).isNull());
+}
+
+void TestImageCache::generationGuardsStaleInsert() {
+    ImageCache cache(64LL * 1024 * 1024);
+    const quint64 gen = cache.generation();
+    QVERIFY(cache.insertIfGeneration(gen, 0, makeImage(16)));
+    QVERIFY(cache.contains(0));
+
+    cache.clear();  // 代次递增:换来源后旧任务的写入被拒
+    QVERIFY(!cache.insertIfGeneration(gen, 1, makeImage(16)));
+    QVERIFY(!cache.contains(1));
+
+    QVERIFY(cache.insertIfGeneration(cache.generation(), 1, makeImage(16)));
+    QVERIFY(cache.contains(1));
 }
 
 QTEST_GUILESS_MAIN(TestImageCache)

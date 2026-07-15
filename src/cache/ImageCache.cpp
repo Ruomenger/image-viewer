@@ -23,8 +23,28 @@ void ImageCache::insert(int key, const QImage& image) {
     const qint64 bytes = imageBytes(image);
 
     QMutexLocker locker(&m_mutex);
+    insertLocked(key, image, bytes);
+}
+
+bool ImageCache::insertIfGeneration(quint64 generation, int key, const QImage& image) {
+    if (image.isNull())
+        return false;
+    const qint64 bytes = imageBytes(image);
+
+    QMutexLocker locker(&m_mutex);
+    if (generation != m_generation)
+        return false;  // clear() 之后才完成的过期任务:丢弃
+    return insertLocked(key, image, bytes);
+}
+
+quint64 ImageCache::generation() const {
+    const QMutexLocker locker(&m_mutex);
+    return m_generation;
+}
+
+bool ImageCache::insertLocked(int key, const QImage& image, qint64 bytes) {
     if (bytes > m_maxBytes)  // 单张就超过总预算:不缓存,否则会把其余全挤掉
-        return;
+        return false;
 
     const auto existing = m_images.find(key);
     if (existing != m_images.end()) {
@@ -36,6 +56,7 @@ void ImageCache::insert(int key, const QImage& image) {
     m_lru.append(key);
     m_totalBytes += bytes;
     evict();
+    return true;
 }
 
 bool ImageCache::contains(int key) const {
@@ -48,6 +69,7 @@ void ImageCache::clear() {
     m_images.clear();
     m_lru.clear();
     m_totalBytes = 0;
+    ++m_generation;
 }
 
 qint64 ImageCache::totalBytes() const {

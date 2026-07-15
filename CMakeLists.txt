@@ -13,8 +13,8 @@ set(CMAKE_AUTOUIC ON)
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Test)
 find_package(LibArchive REQUIRED)
 
-# Testable core (no GUI): the image-source abstraction and its
-# folder / archive implementations. Linked by both the app and the tests.
+# Testable core (no GUI): sources (folder/archive), decoding, cache/prefetch,
+# and the Browser playlist model. Linked by both the app and the tests.
 add_library(viewer-core STATIC
     src/source/ImageSource.cpp
     src/source/FolderSource.cpp
@@ -22,6 +22,7 @@ add_library(viewer-core STATIC
     src/decode/ImageDecoder.cpp
     src/cache/ImageCache.cpp
     src/cache/Prefetcher.cpp
+    src/browse/Browser.cpp
 )
 target_include_directories(viewer-core PUBLIC src)
 target_link_libraries(viewer-core PUBLIC
