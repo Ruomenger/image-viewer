@@ -40,48 +40,53 @@
         │  ImageDecoder   │   QImageReader + 插件（未来 libheif/libavif/libraw 注册表）
         └───────┬────────┘
                 │ QImage
-        ┌───────▼────────┐   缓存层：LRU 解码缓存 + 邻页异步预读
+        ┌───────▼────────┐   缓存层：LRU 解码缓存（代次防竞态）+ 邻页异步预读（前偏）
         │   ImageCache    │
+        └───────┬────────┘
+                │
+        ┌───────▼────────┐   编排层：playlist（来源+当前索引），查缓存→解码→预读
+        │     Browser     │   viewer-core 内、无 GUI 依赖，导航逻辑可单测
         └───────┬────────┘
                 │
         ┌───────▼────────┐   视图层：缩放/平移/适应（+未来大图分块）
         │   ImageView     │   QGraphicsView
         └───────┬────────┘
                 │
-        ┌───────▼────────┐   应用层：导航/菜单/快捷键/拖放/会话
+        ┌───────▼────────┐   应用层：菜单/快捷键/拖放（纯展示，只依赖 Browser）
         │   MainWindow    │
         └────────────────┘
 ```
 
 `ImageSource` 把「字节从哪来」与「怎么显示」解耦——文件夹与压缩包对上层完全一致。
-当前 `source/` 三个文件编译为无 GUI 的 `viewer-core` 静态库，App 与测试共享。
+`source/` `decode/` `cache/` `browse/` 编译为无 GUI 的 `viewer-core` 静态库，App 与测试共享。
 
 ## 4. 关键子系统
 
 ### 4.1 来源 ImageSource
-- **现状**：`FolderSource`、`ArchiveSource`；`QCollator` 自然排序；按 `QImageReader` 支持的后缀过滤非图片。
-- **演进**：抽象顺序读快路径接口；递归子目录；包内子目录；非 UTF-8 包名编码探测（GBK 等，用 `QStringDecoder`/ICU）；加密包密码回调。
+- **现状**：`FolderSource`、`ArchiveSource`；`QCollator` 自然排序；按 `QImageReader` 支持的后缀过滤非图片；`openError()` 错误通道区分「打开失败（含原因）」与「打开成功但没图」；Archive 顺序读快路径（持久 reader + entry 序号索引，回退才重开，互斥锁串行化并发读）。
+- **演进**：大包异步扫描（打开不冻结 UI）；递归子目录；包内子目录；非 UTF-8 包名编码探测（GBK 等，用 `QStringDecoder`/ICU）；加密包密码回调。
 
 ### 4.2 解码与格式
-- **现状**：`QImageReader`（内置 PNG/BMP/PPM…；插件 JPEG/GIF/WebP/TIFF via qtimageformats）。
-- **演进**：经 vcpkg 接 **libheif**(HEIC)/**libavif**(AVIF)/**libraw**(RAW)/(可选)**libjxl**(JXL)；建立 `ImageDecoder` 注册表，按后缀 + magic bytes 选解码器，兜底回退 `QImageReader`；动画（GIF/WebP/APNG）播放；读 EXIF 方向并自动旋转。
+- **现状**：统一入口 `decodeImage()`（`src/decode/`）= `QImageReader`（内置 PNG/BMP/PPM…；插件 JPEG/GIF/WebP/TIFF via qtimageformats）+ EXIF 方向自动旋转（autoTransform）。
+- **演进**：经 vcpkg 接 **libheif**(HEIC)/**libavif**(AVIF)/**libraw**(RAW)/(可选)**libjxl**(JXL)；把 `decodeImage()` 扩展为解码器注册表，按后缀 + magic bytes 选解码器，兜底回退 `QImageReader`；动画（GIF/WebP/APNG）播放。
 
 ### 4.3 渲染
 - **现状**：`QGraphicsView` + `QGraphicsPixmapItem`，滚轮缩放（跟随光标）、拖拽平移、适应/实际大小，`SmoothPixmapTransform`。
 - **演进**：可选 `QOpenGLWidget` viewport 提升大图性能；超大图（gigapixel）分块、按可视区域解码；高质量下采样；HiDPI / `devicePixelRatio` 适配。
 
-### 4.4 缓存与预读（M1 重点）
-- 解码结果 **LRU 缓存**，按字节/像素预算（默认上限可配）。
-- 当前索引**前后 N 张异步预解码**（`QThreadPool`/`QtConcurrent`）；快速翻页时**取消过期任务**。
-- 来源字节读取：Archive **顺序读快路径**（保持句柄顺序读，避免每次 O(n) 重开扫描），必要时建立 entry→偏移索引。
+### 4.4 缓存与预读（M1，已完成）
+- 解码结果 **LRU 缓存**（`ImageCache`），按字节预算（默认 256MB，构造可配）；**代次（generation）防竞态**：clear() 递增代次，在途预读任务的写入锁内校验代次，换源后旧图不会污染新缓存。
+- **前偏异步预读**（`Prefetcher`，`QThreadPool` 2 线程）：向前 3 张、向后 1 张（向前翻页是主导模式）；快速翻页/换源时**取消过期任务**（epoch + 队列清空）。
+- Archive **顺序读快路径**已落地（见 4.1）。
+- 演进：当前页未命中时异步解码 + 加载占位（UI 线程不做同步解码）。
 
 ### 4.5 压缩包
-- libarchive 读 `zip/7z/rar/tar/cb*`。
-- 改进：顺序 reader 缓存；包名编码探测；加密包密码输入；（可选）嵌套包。
+- libarchive 读 `zip/7z/rar/tar/cb*`；顺序 reader 常驻（见 4.1）。
+- 改进：包名编码探测；加密包密码输入；（可选）嵌套包。
 
 ### 4.6 导航与会话
-- playlist 模型（来源 + 当前索引），自然排序，环绕翻页，跳转首/末/第 N 张。
-- `QSettings` 记忆窗口几何、最近打开、上次目录。
+- **现状**：`Browser`（`src/browse/`）= playlist 模型（来源 + 当前索引），环绕翻页、任意跳转、打开单文件定位到所在文件夹索引;统一编排「查缓存 → 解码 → 触发预读」及 cache/prefetcher 的换源协议。
+- **演进**：跳转首/末/第 N 张的快捷键；`QSettings` 记忆窗口几何、最近打开、上次目录。
 
 ### 4.7 UI / 交互
 - 全屏、幻灯片（定时）、缩略图/胶片条、状态栏（尺寸/序号/缩放%）、右键菜单、可配置快捷键、深/浅主题、i18n（中/英）。
@@ -100,7 +105,7 @@
 
 - 翻页响应 **< 50ms**（命中预读缓存）。
 - 普通照片解码 < 100ms；大图（>50MP）首屏 < 500ms（分块）。
-- 缓存内存上限可控（默认约 512MB）。
+- 缓存内存上限可控（默认 256MB，`ImageCache`/`Browser` 构造可配；运行时可配等 M3 的 `QSettings`）。
 
 ## 7. 测试策略
 

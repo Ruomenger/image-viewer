@@ -51,17 +51,25 @@ same line** (`.clang-format`, `BreakBeforeBraces: Attach`).
 ## Architecture
 
 The core abstraction is **`ImageSource`** (`src/source/ImageSource.h`): `count()` /
-`entryName()` / `readEntry()`. It decouples *where image bytes come from* from *how they're
-shown*, so a folder and an archive look identical to the viewer.
+`entryName()` / `readEntry()`, plus `openError()` to distinguish "failed to open (with a
+reason)" from "opened but empty". It decouples *where image bytes come from* from *how
+they're shown*, so a folder and an archive look identical to the viewer.
 
 - `FolderSource` — images in a directory, natural-sorted (`QCollator` numeric mode).
-- `ArchiveSource` — images inside an archive via **libarchive**. Note: reads are currently
-  O(n) (re-open + scan per entry); a prefetch + LRU cache is the planned next step.
+- `ArchiveSource` — images inside an archive via **libarchive**, with a sequential
+  fast-path: a persistent reader + per-entry ordinal index makes forward paging O(1)
+  amortized (only backward seeks reopen); concurrent reads serialize on an internal mutex.
 
-These three files compile into a **GUI-free `viewer-core` static library** (see top-level
-`CMakeLists.txt`) that **both the app and the tests link against** — so core logic is tested
-without the GUI. The app layer (`src/MainWindow`, `src/ImageView`) links `viewer-core` +
-`Qt6::Widgets`; `ImageView` is a `QGraphicsView` subclass handling zoom/pan/fit.
+Decoding goes exclusively through **`decodeImage()`** (`src/decode/`, QImageReader + EXIF
+auto-rotation — the future decoder-registry seam). **`Browser`** (`src/browse/`) is the
+playlist model — source + current index — orchestrating cache lookup → decode → prefetch
+over **`ImageCache`** (byte-budget LRU, generation-guarded against stale inserts after a
+source switch) and **`Prefetcher`** (forward-biased, default 3 ahead / 1 behind). All of
+this compiles into a **GUI-free `viewer-core` static library** (see top-level
+`CMakeLists.txt`) that **both the app and the tests link against** — so core logic is
+tested without the GUI. The app layer (`src/MainWindow`, `src/ImageView`) is
+presentation-only: `MainWindow` talks to `Browser`; `ImageView` is a `QGraphicsView`
+subclass handling zoom/pan/fit.
 
 Tests use **Qt Test** (`test/`), generating real PNGs via `QImage` and real zips via
 libarchive (`test/support/TestData`) — never hand-crafted bytes.

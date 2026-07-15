@@ -34,12 +34,20 @@
 
 > 目标：翻页流畅不卡顿（命中缓存时 <50ms）。
 
-- [x] 解码结果 **LRU 缓存**（按字节预算，上限可配）— `ImageCache`，已接入 `MainWindow`
-- [x] **邻页异步预读**（`QThreadPool`），快速翻页/切换来源时取消过期任务 — `Prefetcher`
-- [ ] Archive **顺序读快路径**：避免每次 `readEntry` O(n) 重开扫描，建立 entry 索引
-- [ ] EXIF 方向自动旋转
-- [ ] 单测：缓存淘汰、预读命中、Archive 顺序读正确性
-- 验收：连续翻页响应 <50ms（缓存命中）；`ArchiveSource` 读 N 张的耗时由 O(n²) 降到 ~O(n)
+- [x] 解码结果 **LRU 缓存**（按字节预算，上限可配）— `ImageCache`
+- [x] **邻页异步预读**（`QThreadPool`），快速翻页/切换来源时取消过期任务 — `Prefetcher`，
+      预读前偏（默认前 3 后 1，向前翻页是主导模式）
+- [x] Archive **顺序读快路径**：持久 reader + entry 序号索引，顺序翻页 O(1) 摊还、
+      回退才重开；按序号定位顺带修复同名 entry 只能读到第一个的问题 — `ArchiveSource`
+- [x] EXIF 方向自动旋转 — `decodeImage()`（`src/decode/`，QImageReader autoTransform），
+      所有解码统一走这一个入口（M2 解码器注册表在此扩展）
+- [x] `Browser` 播放列表模型抽入 viewer-core（来源 + 当前索引，编排查缓存→解码→预读），
+      `MainWindow` 退化为纯展示层 — `src/browse/`
+- [x] `ImageSource::openError()` 错误通道：区分「打开失败（含原因）」与「打开成功但没有图片」
+- [x] 缓存代次（generation）：修复换源后旧来源在途预读结果落入新缓存的竞态
+- [x] 单测：缓存淘汰/代次、预读命中/前偏、Archive 顺序/回退/同名 entry/坏包报错、
+      EXIF 方向、Browser 打开/导航环绕/错误路径
+- 验收：`ArchiveSource` 读 N 张由 O(n²) 降到 ~O(n) ✅；连续翻页 <50ms（缓存命中，待实测）
 
 ## M2 · 现代格式支持
 
@@ -63,11 +71,16 @@
 
 ## M4 · 健壮性与大图
 
-- [ ] 错误处理：损坏图片 / 空压缩包 / 超大图 / 无权限 的友好提示
+- [ ] 错误处理：损坏图片 / 空压缩包 / 超大图 / 无权限 的友好提示（底层通道
+      `openError()` 已就绪，补 UI 呈现与更多场景）
+- [ ] 大压缩包**异步扫描**：`ArchiveSource` 构造时全量扫包在 UI 线程，
+      大 solid 7z 打开会冻结界面 → 列表异步化或加进度提示
+- [ ] 当前页缓存未命中时**异步解码 + 加载占位**：快速翻页越过预读半径时
+      UI 线程不做同步 readEntry/解码
 - [ ] 超大图（gigapixel）分块、按可视区域解码，避免 OOM
 - [ ] 内存预算与缓存自适应
 - [ ] 压缩包：非 UTF-8 包名编码探测；加密包密码输入
-- [ ] 回归样本集 + 对应测试
+- [ ] 回归样本集 + 对应测试；offscreen 端到端集成测试（open → navigate）
 
 ## M5 · 跨平台
 
