@@ -1,5 +1,6 @@
 #include "decode/ImageDecoder.h"
 
+#include "decode/AvifDecoder.h"
 #include "decode/HeifDecoder.h"
 
 #include <QBuffer>
@@ -16,6 +17,8 @@ struct Decoder {
 };
 
 constexpr Decoder kDecoders[] = {
+    // AVIF 在前:mif1 主 brand 的 AVIF 也会命中 HEIF 的结构性 brand。
+    {.probe = looksLikeAvif, .decode = decodeAvif, .extensions = "avif"},
     {.probe = looksLikeHeif, .decode = decodeHeif, .extensions = "heic,heif,hif"},
 };
 

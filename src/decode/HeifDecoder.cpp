@@ -1,5 +1,7 @@
 #include "decode/HeifDecoder.h"
 
+#include "decode/FtypBox.h"
+
 #include <libheif/heif.h>
 
 #include <algorithm>
@@ -7,18 +9,16 @@
 #include <memory>
 
 namespace {
-// ftyp 主 brand 属于 HEIF 家族(HEVC 编码静态图)即交给 libheif。
+// ftyp brand 属于 HEIF 家族(HEVC 编码静态图或其结构性 brand)即交给
+// libheif。注意 mif1/msf1 也可能出现在 AVIF 文件里:注册表把 AVIF 探测
+// 排在 HEIF 之前消歧。
 constexpr const char* kHeifBrands[] = {"heic", "heix", "hevc", "hevx",
                                        "heim", "heis", "mif1", "msf1"};
 }  // namespace
 
 bool looksLikeHeif(const QByteArray& bytes) {
-    // ISO-BMFF 头:[4 字节 box 长度]"ftyp"[4 字节主 brand]。
-    if (bytes.size() < 12 || std::memcmp(bytes.constData() + 4, "ftyp", 4) != 0)
-        return false;
-    const char* brand = bytes.constData() + 8;
-    return std::ranges::any_of(kHeifBrands, [brand](const char* candidate) {
-        return std::memcmp(brand, candidate, 4) == 0;
+    return std::ranges::any_of(kHeifBrands, [&bytes](const char* candidate) {
+        return ftypContainsBrand(bytes, candidate);
     });
 }
 

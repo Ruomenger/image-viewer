@@ -11,6 +11,10 @@
     {
       "name": "libheif",
       "default-features": false
+    },
+    {
+      "name": "libavif",
+      "features": [ "dav1d" ]
     }
   ]
 }
