@@ -68,7 +68,8 @@
 
 ### 4.2 解码与格式
 - **现状**：统一入口 `decodeImage(bytes, nameHint)`（`src/decode/`）= **解码器注册表**（magic bytes + 后缀探测选专用解码器：**libavif**+dav1d 解 AVIF、**libheif**+libde265 解 HEIC/HEIF、**LibRaw** 解相机 RAW——RAW 无统一 magic 按后缀判定；ftyp 探测共用 `FtypBox`，AVIF 排在 HEIF 前消歧 mif1 主 brand；均仅解码）+ 兜底 `QImageReader`（内置 PNG/BMP/PPM…；插件 JPEG/GIF/WebP/TIFF via qtimageformats；EXIF 方向 autoTransform）。可解码后缀由 `decodableExtensions()` 单点提供，来源层据此过滤——「能列出的就能解码」由 decode 模块负责。
-- **演进**：（可选）注册表追加 **libjxl**(JXL)；动画（GIF/WebP/APNG）播放；AVIF 的 irot/imir 方向变换。
+- **动画**：`Browser::currentAnimation()` 对多帧条目（后缀预筛 gif/webp/png + `QImageReader` 探测帧数）返回原始字节，`ImageView` 用 `QMovie` 播放;缓存与预读只存首帧，逻辑不变。APNG 取决于 Qt png 插件支持（当前按静态首帧）。
+- **演进**：（可选）注册表追加 **libjxl**(JXL)；AVIF 的 irot/imir 方向变换。
 
 ### 4.3 渲染
 - **现状**：`QGraphicsView` + `QGraphicsPixmapItem`，滚轮缩放（跟随光标）、拖拽平移、适应/实际大小，`SmoothPixmapTransform`。

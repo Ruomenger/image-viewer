@@ -59,8 +59,10 @@
       `FtypBox`(扫主 + 兼容 brand)，注册表中 AVIF 排在 HEIF 前消歧 mif1 主 brand
 - [x] **libraw**（RAW：CR2/NEF/ARW/DNG…）：链 `libraw::raw_r` 线程安全变体（预读并发）；
       RAW 无统一 magic（多为 TIFF 变体），探测按后缀——`decodeImage()` 增加 nameHint 参数
+- [x] 动画（GIF/WebP）播放：`Browser::currentAnimation()` 暴露动画条目原始字节
+      （后缀预筛 + `QImageReader` 多帧探测），视图层 `QMovie` 播放;缓存/预读仍只存首帧。
+      APNG 取决于 Qt png 插件（当前按静态首帧显示）
 - [ ] （可选）**libjxl**（JXL）
-- [ ] 动画（GIF/WebP/APNG）播放
 - [ ] AVIF 的 irot/imir 方向变换（当前未应用，实拍样本罕见）
 - [x] 单测：各格式样本解码、解码器选择逻辑
       （HEIC/AVIF：真实 sips 编码样本；RAW：raw.pixls.us 的 CC0 DNG 样本，均在 `test/data/`）

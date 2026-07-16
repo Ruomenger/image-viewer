@@ -69,7 +69,9 @@ to disambiguate mif1-branded files — falling back to QImageReader (EXIF auto-r
 sources filter with it. **`Browser`** (`src/browse/`) is the
 playlist model — source + current index — orchestrating cache lookup → decode → prefetch
 over **`ImageCache`** (byte-budget LRU, generation-guarded against stale inserts after a
-source switch) and **`Prefetcher`** (forward-biased, default 3 ahead / 1 behind). All of
+source switch) and **`Prefetcher`** (forward-biased, default 3 ahead / 1 behind); its
+`currentAnimation()` returns raw bytes for multi-frame entries (GIF/WebP) which
+`ImageView` plays via QMovie — cache/prefetch still hold only the first frame. All of
 this compiles into a **GUI-free `viewer-core` static library** (see top-level
 `CMakeLists.txt`) that **both the app and the tests link against** — so core logic is
 tested without the GUI. The app layer (`src/MainWindow`, `src/ImageView`) is
