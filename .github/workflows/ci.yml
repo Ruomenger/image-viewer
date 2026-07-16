@@ -29,6 +29,9 @@ jobs:
           # 与本地一致(6.11)。6.8 的 QtGui 会链接 AGL,而 AGL 已从新版 macOS SDK 移除,
           # 在 macos-latest(Xcode 26 SDK)上会报 "framework 'AGL' not found"。
           version: '6.11.*'
+          # qtimageformats 提供 webp/tiff 等读取插件(本地 Homebrew Qt 自带):
+          # 缺了它动画 WebP 探测等测试会失败。
+          modules: 'qtimageformats'
           cache: true
 
       - name: Setup vcpkg
