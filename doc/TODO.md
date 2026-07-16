@@ -51,13 +51,16 @@
 
 ## M2 · 现代格式支持
 
-- [ ] vcpkg 引入 **libheif**（HEIC/HEIF）
-- [ ] **libavif**（AVIF）
+- [x] `ImageDecoder` 注册表：magic bytes 探测选专用解码器，失败兜底回退 `QImageReader`；
+      可解码后缀集合由 decode 模块单点提供（`decodableExtensions()`），来源层据此过滤
+- [x] vcpkg 引入 **libheif**（HEIC/HEIF）：`default-features: false` 仅解码
+      （libde265，LGPL），避开默认特性里的 x265（GPL 编码器）
+- [ ] **libavif**（AVIF）：接到注册表；vcpkg 需带 AV1 解码器（dav1d 或 aom）
 - [ ] **libraw**（RAW：CR2/NEF/ARW…）
 - [ ] （可选）**libjxl**（JXL）
-- [ ] `ImageDecoder` 注册表：后缀 + magic bytes 选解码器，兜底回退 `QImageReader`
 - [ ] 动画（GIF/WebP/APNG）播放
 - [ ] 单测：各格式样本解码、解码器选择逻辑
+      （HEIC ✅：真实 sips 编码样本 `test/data/sample.heic`；AVIF/RAW 随对应解码器补）
 
 ## M3 · UI / 交互
 

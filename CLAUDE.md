@@ -60,8 +60,11 @@ they're shown*, so a folder and an archive look identical to the viewer.
   fast-path: a persistent reader + per-entry ordinal index makes forward paging O(1)
   amortized (only backward seeks reopen); concurrent reads serialize on an internal mutex.
 
-Decoding goes exclusively through **`decodeImage()`** (`src/decode/`, QImageReader + EXIF
-auto-rotation — the future decoder-registry seam). **`Browser`** (`src/browse/`) is the
+Decoding goes exclusively through **`decodeImage()`** (`src/decode/`) — a decoder
+registry: magic-bytes probes pick a specialized decoder (currently **libheif** for
+HEIC/HEIF, decode-only via libde265), falling back to QImageReader (EXIF auto-rotation).
+`decodableExtensions()` is the single source of truth for which suffixes count as images;
+sources filter with it. **`Browser`** (`src/browse/`) is the
 playlist model — source + current index — orchestrating cache lookup → decode → prefetch
 over **`ImageCache`** (byte-budget LRU, generation-guarded against stale inserts after a
 source switch) and **`Prefetcher`** (forward-biased, default 3 ahead / 1 behind). All of

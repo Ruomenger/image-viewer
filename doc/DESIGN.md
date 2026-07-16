@@ -67,8 +67,8 @@
 - **演进**：大包异步扫描（打开不冻结 UI）；递归子目录；包内子目录；非 UTF-8 包名编码探测（GBK 等，用 `QStringDecoder`/ICU）；加密包密码回调。
 
 ### 4.2 解码与格式
-- **现状**：统一入口 `decodeImage()`（`src/decode/`）= `QImageReader`（内置 PNG/BMP/PPM…；插件 JPEG/GIF/WebP/TIFF via qtimageformats）+ EXIF 方向自动旋转（autoTransform）。
-- **演进**：经 vcpkg 接 **libheif**(HEIC)/**libavif**(AVIF)/**libraw**(RAW)/(可选)**libjxl**(JXL)；把 `decodeImage()` 扩展为解码器注册表，按后缀 + magic bytes 选解码器，兜底回退 `QImageReader`；动画（GIF/WebP/APNG）播放。
+- **现状**：统一入口 `decodeImage()`（`src/decode/`）= **解码器注册表**（magic bytes 探测选专用解码器；当前 **libheif** 解 HEIC/HEIF，libde265 仅解码）+ 兜底 `QImageReader`（内置 PNG/BMP/PPM…；插件 JPEG/GIF/WebP/TIFF via qtimageformats；EXIF 方向 autoTransform）。可解码后缀由 `decodableExtensions()` 单点提供，来源层据此过滤——「能列出的就能解码」由 decode 模块负责。
+- **演进**：注册表追加 **libavif**(AVIF)/**libraw**(RAW)/(可选)**libjxl**(JXL)；动画（GIF/WebP/APNG）播放。
 
 ### 4.3 渲染
 - **现状**：`QGraphicsView` + `QGraphicsPixmapItem`，滚轮缩放（跟随光标）、拖拽平移、适应/实际大小，`SmoothPixmapTransform`。
