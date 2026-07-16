@@ -61,8 +61,9 @@ they're shown*, so a folder and an archive look identical to the viewer.
   amortized (only backward seeks reopen); concurrent reads serialize on an internal mutex.
 
 Decoding goes exclusively through **`decodeImage()`** (`src/decode/`) — a decoder
-registry: magic-bytes probes pick a specialized decoder (currently **libheif** for
-HEIC/HEIF, decode-only via libde265), falling back to QImageReader (EXIF auto-rotation).
+registry: magic-bytes probes pick a specialized decoder (**libavif**+dav1d for AVIF,
+**libheif**+libde265 for HEIC/HEIF — both decode-only; AVIF is probed before HEIF to
+disambiguate mif1-branded files), falling back to QImageReader (EXIF auto-rotation).
 `decodableExtensions()` is the single source of truth for which suffixes count as images;
 sources filter with it. **`Browser`** (`src/browse/`) is the
 playlist model — source + current index — orchestrating cache lookup → decode → prefetch

@@ -55,12 +55,14 @@
       可解码后缀集合由 decode 模块单点提供（`decodableExtensions()`），来源层据此过滤
 - [x] vcpkg 引入 **libheif**（HEIC/HEIF）：`default-features: false` 仅解码
       （libde265，LGPL），避开默认特性里的 x265（GPL 编码器）
-- [ ] **libavif**（AVIF）：接到注册表；vcpkg 需带 AV1 解码器（dav1d 或 aom）
+- [x] **libavif**（AVIF）：dav1d 解码器（BSD,解码专用）；ftyp 探测抽出共享的
+      `FtypBox`(扫主 + 兼容 brand)，注册表中 AVIF 排在 HEIF 前消歧 mif1 主 brand
 - [ ] **libraw**（RAW：CR2/NEF/ARW…）
 - [ ] （可选）**libjxl**（JXL）
 - [ ] 动画（GIF/WebP/APNG）播放
+- [ ] AVIF 的 irot/imir 方向变换（当前未应用，实拍样本罕见）
 - [ ] 单测：各格式样本解码、解码器选择逻辑
-      （HEIC ✅：真实 sips 编码样本 `test/data/sample.heic`；AVIF/RAW 随对应解码器补）
+      （HEIC/AVIF ✅：真实 sips 编码样本 `test/data/`；RAW 随对应解码器补）
 
 ## M3 · UI / 交互
 
