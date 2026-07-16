@@ -91,7 +91,11 @@ void MainWindow::showCurrent() {
 
     const int position = m_browser.currentIndex() + 1;
     const int total = m_browser.count();
-    m_view->setImage(image);
+    const QByteArray animation = m_browser.currentAnimation();
+    if (!animation.isEmpty())
+        m_view->setAnimation(animation, image);
+    else
+        m_view->setImage(image);
     setWindowTitle(tr("%1  (%2/%3) — ImageViewer").arg(name).arg(position).arg(total));
     statusBar()->showMessage(
         tr("%1 × %2  ·  %3/%4").arg(image.width()).arg(image.height()).arg(position).arg(total));

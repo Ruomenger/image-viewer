@@ -70,6 +70,18 @@ QImage Browser::currentImage() {
     return image;
 }
 
+QByteArray Browser::currentAnimation() {
+    if (!m_source)
+        return {};
+    if (!maybeAnimatedName(m_source->entryName(m_index)))
+        return {};
+
+    QByteArray bytes = m_source->readEntry(m_index);
+    if (!isAnimatedImage(bytes))
+        return {};
+    return bytes;
+}
+
 void Browser::goTo(int index) {
     if (!m_source)
         return;

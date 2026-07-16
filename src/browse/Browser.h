@@ -30,8 +30,12 @@ public:
     QString currentName() const;
 
     // 当前图片:缓存命中直接返回,否则同步解码并入缓存;随后触发邻页预读。
-    // 解码失败返回空 QImage。
+    // 解码失败返回空 QImage。动画条目返回的是首帧(缓存亦只存首帧)。
     QImage currentImage();
+
+    // 当前条目为多帧动画时返回其原始字节(供视图层驱动 QMovie 播放),
+    // 否则返回空。先按后缀预筛再重读字节,静态大图不产生额外 I/O。
+    QByteArray currentAnimation();
 
     // 导航:接受任意整数索引,环绕规整到 [0, count)。
     void goTo(int index);

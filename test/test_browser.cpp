@@ -15,6 +15,7 @@ private slots:
     void reportsOpenFailure();
     void failedOpenKeepsCurrentSource();
     void decodeFailureReturnsNullImage();
+    void animationBytesOnlyForAnimatedEntry();
 };
 
 void TestBrowser::opensFolderAndNavigatesWithWrap() {
@@ -110,6 +111,23 @@ void TestBrowser::decodeFailureReturnsNullImage() {
     QVERIFY(browser.currentImage().isNull());  // 坏图:返回空,导航不受影响
     browser.next();
     QVERIFY(!browser.currentImage().isNull());
+}
+
+void TestBrowser::animationBytesOnlyForAnimatedEntry() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    // 自然排序:anim.gif 在 still.png 之前。
+    QVERIFY(QFile::copy(QFINDTESTDATA("data/sample-anim.gif"), dir.filePath("anim.gif")));
+    testdata::writePng(dir.filePath("still.png"), 8, 8);
+
+    Browser browser;
+    QVERIFY(browser.open(dir.path()));
+    QCOMPARE(browser.currentName(), QStringLiteral("anim.gif"));
+    QVERIFY(!browser.currentImage().isNull());       // 首帧照常可显示、可缓存
+    QVERIFY(!browser.currentAnimation().isEmpty());  // 动画条目给出原始字节
+
+    browser.next();
+    QVERIFY(browser.currentAnimation().isEmpty());  // 静态图为空
 }
 
 QTEST_GUILESS_MAIN(TestBrowser)

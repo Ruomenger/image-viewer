@@ -44,6 +44,7 @@ private slots:
     void avifProbeSelectsByMagicBytes();
     void rawProbeSelectsBySuffix();
     void extensionsIncludeRegistryFormats();
+    void detectsAnimation();
 };
 
 void TestImageDecoder::decodesPng() {
@@ -138,6 +139,19 @@ void TestImageDecoder::extensionsIncludeRegistryFormats() {
     QVERIFY(extensions.contains(QStringLiteral("cr2")));
     QVERIFY(extensions.contains(QStringLiteral("nef")));
     QVERIFY(extensions.contains(QStringLiteral("arw")));
+}
+
+void TestImageDecoder::detectsAnimation() {
+    // test/data/sample-anim.{gif,webp}:ImageMagick 生成的 2 帧动画。
+    QVERIFY(isAnimatedImage(readSample(QStringLiteral("sample-anim.gif"))));
+    QVERIFY(isAnimatedImage(readSample(QStringLiteral("sample-anim.webp"))));
+    QVERIFY(!isAnimatedImage(testdata::makePng(4, 4)));  // 静态图
+    QVERIFY(!isAnimatedImage({}));
+
+    QVERIFY(maybeAnimatedName(QStringLiteral("a.gif")));
+    QVERIFY(maybeAnimatedName(QStringLiteral("A.WEBP")));
+    QVERIFY(!maybeAnimatedName(QStringLiteral("photo.jpg")));
+    QVERIFY(!maybeAnimatedName(QStringLiteral("photo.dng")));  // 大文件不做动画重读
 }
 
 QTEST_GUILESS_MAIN(TestImageDecoder)

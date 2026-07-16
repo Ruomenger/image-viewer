@@ -4,6 +4,7 @@
 #include <QGraphicsPixmapItem>
 #include <QGraphicsScene>
 #include <QImage>
+#include <QMovie>
 #include <QPainter>
 #include <QPixmap>
 #include <QWheelEvent>
@@ -29,11 +30,38 @@ ImageView::ImageView(QWidget* parent) : QGraphicsView(parent), m_scene(new QGrap
 }
 
 void ImageView::setImage(const QImage& image) {
+    stopMovie();
     m_scene->clear();
     m_item = m_scene->addPixmap(QPixmap::fromImage(image));
     m_scene->setSceneRect(m_item->boundingRect());
     m_fitMode = true;
     fitToWindow();
+}
+
+void ImageView::setAnimation(const QByteArray& bytes, const QImage& firstFrame) {
+    setImage(firstFrame);  // 铺场景 + 适配,并停掉上一个动画
+
+    m_movieBuffer.setData(bytes);
+    if (!m_movieBuffer.open(QIODevice::ReadOnly))
+        return;  // 保底显示静态首帧
+
+    m_movie = new QMovie(&m_movieBuffer, QByteArray(), this);
+    m_movie->setCacheMode(QMovie::CacheAll);  // 循环播放需回绕到首帧
+    connect(m_movie, &QMovie::frameChanged, this, [this] {
+        if (m_item != nullptr && m_movie != nullptr)
+            m_item->setPixmap(m_movie->currentPixmap());
+    });
+    m_movie->start();
+}
+
+void ImageView::stopMovie() {
+    if (m_movie != nullptr) {
+        m_movie->stop();
+        delete m_movie;
+        m_movie = nullptr;
+    }
+    if (m_movieBuffer.isOpen())
+        m_movieBuffer.close();
 }
 
 void ImageView::fitToWindow() {

@@ -16,3 +16,11 @@ QImage decodeImage(const QByteArray& bytes, const QString& nameHint = QString())
 // 注册表专用解码器的格式。来源层(ImageSource)按它过滤图片文件,
 // 保证「能列出的就能解码」由 decode 模块单点负责。
 const QSet<QString>& decodableExtensions();
+
+// 后缀是否属于可能承载动画的格式(gif/webp/png)。廉价预筛:避免为
+// 判定动画而重读静态大图(如几十 MB 的 RAW)的字节。
+bool maybeAnimatedName(const QString& name);
+
+// 字节流是否为多帧动画(QImageReader 探测:supportsAnimation 且帧数>1)。
+// 注:APNG 取决于 Qt png 插件是否支持,当前通常按静态首帧处理。
+bool isAnimatedImage(const QByteArray& bytes);

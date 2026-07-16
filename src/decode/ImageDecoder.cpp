@@ -65,6 +65,29 @@ QImage decodeImage(const QByteArray& bytes, const QString& nameHint) {
     return decodeWithQt(bytes);
 }
 
+bool maybeAnimatedName(const QString& name) {
+    static const QSet<QString> kAnimatable = {
+        QStringLiteral("gif"),
+        QStringLiteral("webp"),
+        QStringLiteral("png"),  // APNG 同后缀
+        QStringLiteral("apng"),
+    };
+    return kAnimatable.contains(QFileInfo(name).suffix().toLower());
+}
+
+bool isAnimatedImage(const QByteArray& bytes) {
+    if (bytes.isEmpty())
+        return false;
+
+    QBuffer buffer;
+    buffer.setData(bytes);
+    if (!buffer.open(QIODevice::ReadOnly))
+        return false;
+
+    QImageReader reader(&buffer);
+    return reader.supportsAnimation() && reader.imageCount() > 1;
+}
+
 const QSet<QString>& decodableExtensions() {
     static const QSet<QString> kExtensions = [] {
         QSet<QString> set;
