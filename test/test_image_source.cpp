@@ -14,6 +14,8 @@ void TestImageSource::supportedImageByExtension() {
     QVERIFY(ImageSource::isSupportedImage("PHOTO.PNG"));  // 大小写不敏感
     QVERIFY(ImageSource::isSupportedImage("a.jpg"));
     QVERIFY(ImageSource::isSupportedImage("a.jpeg"));
+    QVERIFY(ImageSource::isSupportedImage("photo.heic"));  // 注册表格式(libheif)
+    QVERIFY(ImageSource::isSupportedImage("photo.HEIF"));
     QVERIFY(!ImageSource::isSupportedImage("notes.txt"));
     QVERIFY(!ImageSource::isSupportedImage("archive.zip"));
     QVERIFY(!ImageSource::isSupportedImage("noextension"));

@@ -1,23 +1,13 @@
 #include "source/ImageSource.h"
 
+#include "decode/ImageDecoder.h"
+
 #include <QFileInfo>
-#include <QImageReader>
 #include <QSet>
 
 bool ImageSource::isSupportedImage(const QString& name) {
-    static const QSet<QString> kExtensions = [] {
-        QSet<QString> set;
-        for (const QByteArray& fmt : QImageReader::supportedImageFormats())
-            set.insert(QString::fromLatin1(fmt).toLower());
-        // Common aliases QImageReader reports as "jpeg".
-        set.insert(QStringLiteral("jpg"));
-        set.insert(QStringLiteral("jpeg"));
-        set.insert(QStringLiteral("jpe"));
-        return set;
-    }();
-
     const QString suffix = QFileInfo(name).suffix().toLower();
-    return !suffix.isEmpty() && kExtensions.contains(suffix);
+    return !suffix.isEmpty() && decodableExtensions().contains(suffix);
 }
 
 bool ImageSource::isArchive(const QString& path) {
