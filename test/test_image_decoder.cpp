@@ -84,17 +84,27 @@ void TestImageDecoder::decodesHeic() {
     const QByteArray bytes = readSampleHeic();
     QVERIFY(!bytes.isEmpty());
 
+    // 直测 libheif 路径:decodeImage 的 QImageReader 兜底在装有 qmacheif
+    // 插件的环境(如本地 Homebrew Qt)也能解 HEIC,会掩盖专用解码器故障。
+    // 样本用常规尺寸:libheif 1.23 把解码上限收紧到「ispe 尺寸+64」,而
+    // Apple 编码器会把过小的图(如 32x24)填充到远超该余量的编码尺寸。
+    const QImage viaLibheif = decodeHeif(bytes);
+    QVERIFY(!viaLibheif.isNull());
+    QCOMPARE(viaLibheif.size(), QSize(320, 240));
+
     const QImage image = decodeImage(bytes);  // 经注册表命中 libheif
-    QVERIFY(!image.isNull());
-    QCOMPARE(image.size(), QSize(32, 24));
+    QCOMPARE(image.size(), QSize(320, 240));
 }
 
 void TestImageDecoder::decodesAvif() {
     const QByteArray bytes = readSampleAvif();
     QVERIFY(!bytes.isEmpty());
 
+    const QImage viaLibavif = decodeAvif(bytes);  // 直测,不受兜底掩盖
+    QVERIFY(!viaLibavif.isNull());
+    QCOMPARE(viaLibavif.size(), QSize(32, 24));
+
     const QImage image = decodeImage(bytes);  // 经注册表命中 libavif/dav1d
-    QVERIFY(!image.isNull());
     QCOMPARE(image.size(), QSize(32, 24));
 }
 
