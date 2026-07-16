@@ -62,7 +62,7 @@ QImage Browser::currentImage() {
 
     QImage image = m_cache.get(m_index);
     if (image.isNull()) {
-        image = decodeImage(m_source->readEntry(m_index));
+        image = decodeImage(m_source->readEntry(m_index), m_source->entryName(m_index));
         if (!image.isNull())
             m_cache.insert(m_index, image);
     }

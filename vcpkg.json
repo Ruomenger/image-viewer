@@ -15,6 +15,9 @@
     {
       "name": "libavif",
       "features": [ "dav1d" ]
+    },
+    {
+      "name": "libraw"
     }
   ]
 }

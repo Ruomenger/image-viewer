@@ -14,6 +14,7 @@ find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Test)
 find_package(LibArchive REQUIRED)
 find_package(libheif CONFIG REQUIRED)
 find_package(libavif CONFIG REQUIRED)
+find_package(libraw CONFIG REQUIRED)
 
 # Testable core (no GUI): sources (folder/archive), decoding, cache/prefetch,
 # and the Browser playlist model. Linked by both the app and the tests.
@@ -25,6 +26,7 @@ add_library(viewer-core STATIC
     src/decode/FtypBox.cpp
     src/decode/HeifDecoder.cpp
     src/decode/AvifDecoder.cpp
+    src/decode/RawDecoder.cpp
     src/cache/ImageCache.cpp
     src/cache/Prefetcher.cpp
     src/browse/Browser.cpp
@@ -36,6 +38,7 @@ target_link_libraries(viewer-core PUBLIC
     LibArchive::LibArchive
     heif
     avif
+    libraw::raw_r
 )
 
 # GUI application.

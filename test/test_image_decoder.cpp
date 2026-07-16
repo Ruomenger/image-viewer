@@ -9,6 +9,7 @@
 #include "decode/AvifDecoder.h"
 #include "decode/HeifDecoder.h"
 #include "decode/ImageDecoder.h"
+#include "decode/RawDecoder.h"
 #include "support/TestData.h"
 
 namespace {
@@ -38,8 +39,10 @@ private slots:
     void rejectsGarbage();
     void decodesHeic();
     void decodesAvif();
+    void decodesRawDng();
     void heifProbeSelectsByMagicBytes();
     void avifProbeSelectsByMagicBytes();
+    void rawProbeSelectsBySuffix();
     void extensionsIncludeRegistryFormats();
 };
 
@@ -94,6 +97,17 @@ void TestImageDecoder::decodesAvif() {
     QCOMPARE(image.size(), QSize(32, 24));
 }
 
+void TestImageDecoder::decodesRawDng() {
+    // test/data/sample.dng:Canon EOS 5D Mark III,raw.pixls.us 的 CC0 样本
+    // (sha256 1d77dcc6…)。
+    const QByteArray bytes = readSample(QStringLiteral("sample.dng"));
+    QVERIFY(!bytes.isEmpty());
+
+    const QImage image = decodeImage(bytes, QStringLiteral("sample.dng"));  // 经注册表命中 LibRaw
+    QVERIFY(!image.isNull());
+    QCOMPARE(image.size(), QSize(1920, 818));  // 该样本为 5D3 视频裁切模式(2.35:1)
+}
+
 void TestImageDecoder::heifProbeSelectsByMagicBytes() {
     QVERIFY(looksLikeHeif(readSampleHeic()));
     QVERIFY(!looksLikeHeif(testdata::makePng(4, 4)));  // PNG 不该进 heif 解码器
@@ -106,6 +120,13 @@ void TestImageDecoder::avifProbeSelectsByMagicBytes() {
     QVERIFY(!looksLikeAvif(testdata::makePng(4, 4)));
 }
 
+void TestImageDecoder::rawProbeSelectsBySuffix() {
+    const QByteArray dng = readSample(QStringLiteral("sample.dng"));
+    QVERIFY(looksLikeRaw(dng, QStringLiteral("dng")));
+    QVERIFY(!looksLikeRaw(dng, QString()));  // RAW 靠后缀判定,无后缀不进 LibRaw
+    QVERIFY(!looksLikeRaw(testdata::makePng(4, 4), QStringLiteral("png")));
+}
+
 void TestImageDecoder::extensionsIncludeRegistryFormats() {
     const QSet<QString>& extensions = decodableExtensions();
     QVERIFY(extensions.contains(QStringLiteral("png")));
@@ -113,6 +134,10 @@ void TestImageDecoder::extensionsIncludeRegistryFormats() {
     QVERIFY(extensions.contains(QStringLiteral("heic")));
     QVERIFY(extensions.contains(QStringLiteral("heif")));
     QVERIFY(extensions.contains(QStringLiteral("avif")));
+    QVERIFY(extensions.contains(QStringLiteral("dng")));
+    QVERIFY(extensions.contains(QStringLiteral("cr2")));
+    QVERIFY(extensions.contains(QStringLiteral("nef")));
+    QVERIFY(extensions.contains(QStringLiteral("arw")));
 }
 
 QTEST_GUILESS_MAIN(TestImageDecoder)

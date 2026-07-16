@@ -85,7 +85,7 @@ void Prefetcher::submit(int index, const std::shared_ptr<ImageSource>& source, i
         const QByteArray bytes = source->readEntry(index);
         if (epochPtr->loadAcquire() != epoch)
             return;
-        const QImage image = decodeImage(bytes);
+        const QImage image = decodeImage(bytes, source->entryName(index));
         if (image.isNull())
             return;
         cache->insertIfGeneration(generation, index, image);

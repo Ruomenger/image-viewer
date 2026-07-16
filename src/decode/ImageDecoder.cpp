@@ -2,24 +2,38 @@
 
 #include "decode/AvifDecoder.h"
 #include "decode/HeifDecoder.h"
+#include "decode/RawDecoder.h"
 
 #include <QBuffer>
+#include <QFileInfo>
 #include <QImageReader>
 #include <QStringList>
 
 namespace {
 
-// 注册表条目:probe 用 magic bytes 判断是否交给 decode。
+// 注册表条目:probe 按 magic bytes(和小写后缀)判断是否交给 decode。
 struct Decoder {
-    bool (*probe)(const QByteArray&);
+    bool (*probe)(const QByteArray&, const QString& suffix);
     QImage (*decode)(const QByteArray&);
     const char* extensions;  // 逗号分隔的小写后缀,汇总进 decodableExtensions()
 };
 
+bool probeAvif(const QByteArray& bytes, const QString& /*suffix*/) {
+    return looksLikeAvif(bytes);
+}
+
+bool probeHeif(const QByteArray& bytes, const QString& /*suffix*/) {
+    return looksLikeHeif(bytes);
+}
+
 constexpr Decoder kDecoders[] = {
     // AVIF 在前:mif1 主 brand 的 AVIF 也会命中 HEIF 的结构性 brand。
-    {.probe = looksLikeAvif, .decode = decodeAvif, .extensions = "avif"},
-    {.probe = looksLikeHeif, .decode = decodeHeif, .extensions = "heic,heif,hif"},
+    {.probe = probeAvif, .decode = decodeAvif, .extensions = "avif"},
+    {.probe = probeHeif, .decode = decodeHeif, .extensions = "heic,heif,hif"},
+    {.probe = looksLikeRaw,
+     .decode = decodeRaw,
+     .extensions = "dng,cr2,cr3,crw,nef,nrw,arw,srf,sr2,orf,rw2,raf,pef,srw,x3f,mrw,kdc,dcr,erf,"
+                   "3fr,fff,iiq,rwl,mos,mdc"},
 };
 
 QImage decodeWithQt(const QByteArray& bytes) {
@@ -35,12 +49,13 @@ QImage decodeWithQt(const QByteArray& bytes) {
 
 }  // namespace
 
-QImage decodeImage(const QByteArray& bytes) {
+QImage decodeImage(const QByteArray& bytes, const QString& nameHint) {
     if (bytes.isEmpty())
         return {};
 
+    const QString suffix = QFileInfo(nameHint).suffix().toLower();
     for (const Decoder& decoder : kDecoders) {
-        if (!decoder.probe(bytes))
+        if (!decoder.probe(bytes, suffix))
             continue;
         QImage image = decoder.decode(bytes);
         if (!image.isNull())

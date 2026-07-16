@@ -17,6 +17,8 @@ void TestImageSource::supportedImageByExtension() {
     QVERIFY(ImageSource::isSupportedImage("photo.heic"));  // 注册表格式(libheif)
     QVERIFY(ImageSource::isSupportedImage("photo.HEIF"));
     QVERIFY(ImageSource::isSupportedImage("photo.avif"));  // 注册表格式(libavif)
+    QVERIFY(ImageSource::isSupportedImage("photo.dng"));   // 注册表格式(LibRaw)
+    QVERIFY(ImageSource::isSupportedImage("photo.CR2"));
     QVERIFY(!ImageSource::isSupportedImage("notes.txt"));
     QVERIFY(!ImageSource::isSupportedImage("archive.zip"));
     QVERIFY(!ImageSource::isSupportedImage("noextension"));
