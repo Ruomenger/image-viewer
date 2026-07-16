@@ -32,13 +32,16 @@ add_library(viewer-core STATIC
     src/browse/Browser.cpp
 )
 target_include_directories(viewer-core PUBLIC src)
+# vcpkg 依赖放在 Qt 之前:Homebrew Qt 会把 /opt/homebrew/include 注入包含路径,
+# 若排在 vcpkg 之前,系统里同名库(如 ImageMagick 依赖的 libheif)的头文件会
+# 抢先命中,造成「Homebrew 头文件 + vcpkg 静态库」的 ABI 错配。
 target_link_libraries(viewer-core PUBLIC
-    Qt6::Core
-    Qt6::Gui
     LibArchive::LibArchive
     heif
     avif
     libraw::raw_r
+    Qt6::Core
+    Qt6::Gui
 )
 
 # GUI application.
