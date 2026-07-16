@@ -1,5 +1,6 @@
 #include <QtTest>
 
+#include <QFile>
 #include <QTemporaryDir>
 
 #include <memory>
@@ -14,6 +15,7 @@ class TestPrefetcher : public QObject {
 private slots:
     void prefetchesNeighborsIntoCache();
     void forwardBiasedByDefault();
+    void decodesRawNeighborOnPoolThread();
 };
 
 void TestPrefetcher::prefetchesNeighborsIntoCache() {
@@ -56,6 +58,25 @@ void TestPrefetcher::forwardBiasedByDefault() {
     QVERIFY(!cache.contains(4));                        // 前偏:不预读更远的后方
     QVERIFY(!cache.contains(5));
     QVERIFY(!cache.contains(6));
+}
+
+void TestPrefetcher::decodesRawNeighborOnPoolThread() {
+    // 回归:LibRaw 栈深超过次线程默认 512KB,未加大池线程栈时此测试 SIGBUS。
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    testdata::writePng(dir.filePath(QStringLiteral("0.png")), 8, 8);
+    QVERIFY(QFile::copy(QFINDTESTDATA("data/sample.dng"), dir.filePath(QStringLiteral("1.dng"))));
+
+    auto source = std::make_shared<FolderSource>(dir.path());
+    QCOMPARE(source->count(), 2);
+
+    ImageCache cache(256LL * 1024 * 1024);
+    Prefetcher prefetcher(cache);
+    prefetcher.setSource(source);
+    prefetcher.prefetchAround(0);  // 邻页 1.dng 在池线程上走 LibRaw 解码
+
+    QTRY_VERIFY_WITH_TIMEOUT(cache.contains(1), 15000);
+    QCOMPARE(cache.get(1).size(), QSize(1920, 818));
 }
 
 QTEST_GUILESS_MAIN(TestPrefetcher)

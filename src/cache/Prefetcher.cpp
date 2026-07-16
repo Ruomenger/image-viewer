@@ -19,6 +19,9 @@ int wrapIndex(int index, int n) {
 Prefetcher::Prefetcher(ImageCache& cache, int ahead, int behind)
     : m_cache(cache), m_ahead(ahead > 0 ? ahead : 1), m_behind(behind >= 0 ? behind : 0) {
     m_pool.setMaxThreadCount(2);  // 后台预读,不抢满 CPU
+    // LibRaw/dav1d 解码栈深远超 macOS 次线程默认的 512KB,按主线程规格给足,
+    // 否则预读 RAW/AVIF 邻页时池线程栈溢出(SIGBUS)。
+    m_pool.setStackSize(8 * 1024 * 1024);
 }
 
 Prefetcher::~Prefetcher() = default;  // m_pool 析构会 waitForDone
