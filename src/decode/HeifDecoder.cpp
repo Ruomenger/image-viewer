@@ -12,8 +12,9 @@ namespace {
 // ftyp brand 属于 HEIF 家族(HEVC 编码静态图或其结构性 brand)即交给
 // libheif。注意 mif1/msf1 也可能出现在 AVIF 文件里:注册表把 AVIF 探测
 // 排在 HEIF 之前消歧。
-constexpr const char* kHeifBrands[] = {"heic", "heix", "hevc", "hevx",
-                                       "heim", "heis", "mif1", "msf1"};
+constexpr const char* kHeifBrands[] = {
+    "heic", "heix", "hevc", "hevx", "heim", "heis", "mif1", "msf1",
+};
 }  // namespace
 
 bool looksLikeHeif(const QByteArray& bytes) {

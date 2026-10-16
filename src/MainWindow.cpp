@@ -44,11 +44,17 @@ void MainWindow::buildMenus() {
 
     QMenu* navMenu = menuBar()->addMenu(tr("浏览(&N)"));
     QAction* prevAction = navMenu->addAction(tr("上一张"), this, &MainWindow::prev);
-    prevAction->setShortcuts({QKeySequence(Qt::Key_Left), QKeySequence(Qt::Key_PageUp),
-                              QKeySequence(Qt::Key_Backspace)});
+    prevAction->setShortcuts({
+        QKeySequence(Qt::Key_Left),
+        QKeySequence(Qt::Key_PageUp),
+        QKeySequence(Qt::Key_Backspace),
+    });
     QAction* nextAction = navMenu->addAction(tr("下一张"), this, &MainWindow::next);
-    nextAction->setShortcuts(
-        {QKeySequence(Qt::Key_Right), QKeySequence(Qt::Key_PageDown), QKeySequence(Qt::Key_Space)});
+    nextAction->setShortcuts({
+        QKeySequence(Qt::Key_Right),
+        QKeySequence(Qt::Key_PageDown),
+        QKeySequence(Qt::Key_Space),
+    });
 }
 
 void MainWindow::openFile() {

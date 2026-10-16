@@ -1,5 +1,7 @@
 #include "decode/FtypBox.h"
 
+#include <QtEndian>
+
 #include <algorithm>
 #include <cstring>
 
@@ -8,11 +10,7 @@ bool ftypContainsBrand(const QByteArray& bytes, const char* brand) {
     if (bytes.size() < 12 || std::memcmp(bytes.constData() + 4, "ftyp", 4) != 0)
         return false;
 
-    const auto boxSize =
-        static_cast<qsizetype>((static_cast<quint32>(static_cast<uchar>(bytes[0])) << 24) |
-                               (static_cast<quint32>(static_cast<uchar>(bytes[1])) << 16) |
-                               (static_cast<quint32>(static_cast<uchar>(bytes[2])) << 8) |
-                               static_cast<quint32>(static_cast<uchar>(bytes[3])));
+    const auto boxSize = static_cast<qsizetype>(qFromBigEndian<quint32>(bytes.constData()));
     // 防御异常 box 长度:最多扫 256 字节,足够覆盖正常 brand 列表。
     const qsizetype end = std::min({bytes.size(), boxSize, qsizetype{256}});
 
