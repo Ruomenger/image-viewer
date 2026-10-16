@@ -63,7 +63,7 @@
 
 `source/` `decode/` `schedule/` `cache/` `browse/` 编译为无 GUI 的 `viewer-core` 静态库，App 与测试共享。
 
-> **现状与目标**：M2.5 进行中。已落地：`decodeImage()` 按目标尺寸解码；`DecodeScheduler` + 按档分道的 `ImageCache` 取代了 `Prefetcher`（§4.4）；`Browser` 全异步（§4.6），viewer-core 在调用线程上不再读取或解码。仍是旧结构：Fit 目标尚未由 App 层传入（为空 = 原图），视图仍按显示图的像素铺场景；`ArchiveSource` 用单游标加锁顺序读。M2.5 剩余任务落地上图其余部分。
+> **现状与目标**：M2.5 进行中。已落地：`decodeImage()` 按目标尺寸解码；`DecodeScheduler` + 按档分道的 `ImageCache` 取代了 `Prefetcher`（§4.4）；`Browser` 全异步（§4.6），viewer-core 在调用线程上不再读取或解码。App 层已切到异步接口（§4.3）：场景坐标 = 原图像素、按屏幕物理像素定 Fit 目标、放大时换 Full。仍是旧结构：`ArchiveSource` 用单游标加锁顺序读。M2.5 剩余任务落地上图其余部分。
 
 ## 4. 关键子系统
 
@@ -79,9 +79,7 @@
 ### 4.2 解码与格式
 - **现状**：统一入口 `decodeImage(bytes, nameHint, target)`（`src/decode/`）= **解码器注册表**（magic bytes + 后缀探测选专用解码器：**libavif**+dav1d 解 AVIF、**libheif**+libde265 解 HEIC/HEIF、**LibRaw** 解相机 RAW——RAW 无统一 magic 按后缀判定；ftyp 探测共用 `FtypBox`，AVIF 排在 HEIF 前消歧 mif1 主 brand；均仅解码）+ 兜底 `QImageReader`（内置 PNG/BMP/PPM…；插件 JPEG/GIF/WebP/TIFF via qtimageformats；EXIF 方向 autoTransform）。可解码后缀由 `decodableExtensions()` 单点提供，来源层据此过滤——「能列出的就能解码」由 decode 模块负责。按目标尺寸解码、显示格式输出、动画字节随结果返回均已落地（见下方「目标」，M2.5 第一步）；专用解码器可返回大于目标的图，由 `decodeImage` 统一缩放与转格式。
 - **动画（现状）**：`decodeImage` 在 Qt 路径顺手判定多帧并把字节放进 `DecodedImage.animation`，随 `pageReady` 交给视图，`ImageView` 用 `QMovie` 播放，不再二次读取；缓存存整个 `DecodedImage`（Fit / Full 档含动画字节，Thumb 档只留首帧）。APNG 取决于 Qt png 插件支持（当前按静态首帧）。
-- **问题**（解码层、调度器与分档缓存已就绪，剩下的在调用方，随 Browser / App 层任务解决）：
-  - Fit 目标还没由 App 层传入，Fit 档实际仍是原图。2400 万像素照片解成 `RGB32` 约 96MB，默认 256MB 预算只放得下 2 张，而预读窗口要放 5 张（当前 + 前 3 + 后 1）——后入的预读图把先入的挤掉，翻到下一张反而未命中。
-  - 动画判定要在 UI 线程二次读取字节（压缩包里还会触发重扫，见 §4.5）。
+- **已解决的问题**（M2.5）：原先永远解原图，2400 万像素照片解成 `RGB32` 约 96MB，默认 256MB 预算只放得下 2 张，而预读窗口要放 5 张（当前 + 前 3 + 后 1）——后入的预读图把先入的挤掉，翻到下一张反而未命中；动画判定要在 UI 线程二次读取字节。现在 App 层按屏幕物理像素传入 Fit 目标、Fit 预算按窗口张数抬高，动画字节随解码结果返回。
 
 **目标（M2.5）**：解码按**目标尺寸**——`decodeImage(bytes, nameHint, target)`，`target` 为空表示原图。调度 / 缓存层用三个**尺寸档**换算 `target`：
 
@@ -112,7 +110,11 @@ struct DecodedImage {
 - **演进**：（可选）注册表追加 **libjxl**(JXL)；AVIF 的 irot/imir 方向变换。
 
 ### 4.3 渲染
-- **现状**：`QGraphicsView` + `QGraphicsPixmapItem`，滚轮缩放（跟随光标）、拖拽平移、适应/实际大小，`SmoothPixmapTransform`；动画由 `QMovie` 逐帧替换 pixmap。
+- **现状**：`QGraphicsView` + `QGraphicsPixmapItem`，滚轮缩放（跟随光标）、拖拽平移、适应/实际大小；动画由 `QMovie` 逐帧替换 pixmap。下方「目标」除双页外均已落地（`ImageView`、`MainWindow`，编进 `viewer-ui` 静态库）。补充：
+  - 「Fit 像素被放大显示」的判定 = 视图缩放 × 图元放大（原图 / 显示图）× `devicePixelRatio` > 1（留 1% 浮点容限），每张图只发一次 `needsSharperImage`；已是原图或动画（`QMovie` 帧本身是原图尺寸）时不发。Fit 目标 = 屏幕物理像素，所以适应窗口时不会触发。
+  - 同一页再次 `pageReady`（Full 到位、Fit 目标调大）只换 pixmap；新的一页才重铺场景、重新适应窗口。当前页解码失败时清空画面，免得上一页的图与标题对不上。
+  - Fit 目标在窗口构造时按初始屏幕设定，原生窗口建好后跟随 `QWindow::screenChanged` 更新。
+  - 图元用 `SmoothTransformation`：`QGraphicsPixmapItem` 默认的 Fast 会盖过视图的 `SmoothPixmapTransform` 提示。
 - **目标（M2.5）**：
   - **场景坐标 = 原图像素坐标**：pixmap item 按 `originalSize / image.size()` 缩放放置，视图变换的缩放系数就是缩放百分比（100% = 原图 1:1）。Fit 档换成 Full 档只替换 pixmap、重设 item 缩放，视图的缩放与平移位置不动。
   - 实际放大倍数超过 Fit 档分辨率（Fit 像素被放大显示）时，向 Browser 请求 Full 档；到位前先显示放大的 Fit 档。
@@ -127,8 +129,6 @@ struct DecodedImage {
   - 结果在工作线程写缓存，再排队回调度器所在线程（UI），送达前按来源 id、Fit 目标版本再校验一次——与 `setSource` / `setFitTarget` 在同一线程串行，没有「校验后、送达前换源」的窗口。
   - 每次完成都发信号（含预读）：用户翻到一张正在预读的页，`Browser` 只需按键匹配，无需单独登记等待者。
   - 当前页也走调度器（`Browser` 异步化后），当前页与预读之间天然在途去重。
-- **问题**：
-  - Fit 目标未接入，大照片下预读窗口仍装不下（§4.2）。
 - **目标（M2.5）**：**`DecodeScheduler`** 取代 `Prefetcher`，成为读取 + 解码的唯一入口。
   - 请求 = `(EntryKey, 档, 优先级)`。
   - 优先级：**P0 当前页**（Fit；需要时 Full）> **P1 翻页方向的邻页**（默认 3 页）> **P2 反方向**（默认 1 页）> **P3 缩略图**。「翻页方向」取最近一次翻页的方向（RTL 只反转键位，不改变方向语义）。

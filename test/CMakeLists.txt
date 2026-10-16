@@ -19,3 +19,13 @@ add_viewer_test(test_image_decoder)
 add_viewer_test(test_image_cache)
 add_viewer_test(test_decode_scheduler)
 add_viewer_test(test_browser)
+
+# 视图层(viewer-ui)测试:离屏平台运行,CI 无显示器也能跑。
+function(add_ui_test name)
+    add_viewer_test(${name})
+    target_link_libraries(${name} PRIVATE viewer-ui)
+    set_tests_properties(${name} PROPERTIES ENVIRONMENT QT_QPA_PLATFORM=offscreen)
+endfunction()
+
+add_ui_test(test_image_view)
+add_ui_test(test_main_window)

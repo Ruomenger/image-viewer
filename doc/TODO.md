@@ -122,11 +122,17 @@
         **UI 线程守卫**（`FakeSource::forbidReadsOn`，故意在调用线程读一次即失败，已验证）；
         `requestFull` 换原图且原图不大于 Fit 时不重解；Fit 目标调大重解、调小不重发；
         原有单测（打开 / 单文件定位 / 压缩包 / 失败保留原来源 / 坏图 / 动画）迁移到新接口
-- [ ] **App 层切到异步接口**（§4.3）：未就绪时保留上一页画面；场景坐标 = 原图像素，Fit → Full
+- [x] **App 层切到异步接口**（§4.3）：未就绪时保留上一页画面；场景坐标 = 原图像素，Fit → Full
       只换 pixmap；放大超过 Fit 分辨率时 `requestFull`；状态栏用 `originalSize`；动画字节取自
-      `DecodedImage`；按屏幕物理像素调 `setFitTarget`（换屏时更新）
-      - 验收：`QT_QPA_PLATFORM=offscreen` 冒烟——打开文件夹连续翻页不阻塞；手测 24MP 照片放大后
-        切到原图清晰度
+      `DecodedImage`；按屏幕物理像素调 `setFitTarget`（换屏时更新）。`ImageView` 在显示图像素被拉伸
+      （视图缩放 × 图元放大 × 设备像素比 > 1）时发 `needsSharperImage`，每张图一次；动画帧本身是原图
+      尺寸，不发。状态栏显示原图尺寸与相对原图的缩放%；当前页解码失败时清空画面。图元改用
+      `SmoothTransformation`（默认 Fast 会盖过视图的平滑提示）。`MainWindow` / `ImageView` 抽成
+      `viewer-ui` 静态库，供离屏测试链接
+      - 验收 ✅：`test_main_window`（离屏，真实 MainWindow + Browser）——6 张无预览 DNG 连续翻页，每次
+        `next()` 立即返回（实测 0ms；故意在 UI 线程解码时 526ms、测试失败，已验证）；3000×2000 图先出
+        Fit 档，放到 100% 后换成原图且缩放不动。`test_image_view`：场景 = 原图矩形、换图不动变换与中心、
+        拉伸判定只发一次、原图 / 动画不发。**待真机手测**：24MP 照片在 Retina 屏上放大后的清晰度
 - [ ] **压缩包 · 按实际格式分派 + `ZipArchiveSource`**（§4.5）：按 `archive_format()` /
       `archive_filter_code()` 分派，不信后缀；zip / cbz / 未压缩 tar 无状态随机读，无共享游标、无全局锁
       - 验收：两线程乱序并发读全部正确；后缀为 `.cbr` 的 zip 走随机读路径；千页 cbz 单次随机读耗时
@@ -166,7 +172,8 @@
 - [ ] 超大图（gigapixel）分块、按可视区域解码，避免 OOM——作为 Full 档的替代挂在调度器请求上
 - [ ] 按系统可用内存自适应缓存预算（M2.5 已按屏幕尺寸定 Fit 预算下限）
 - [ ] 压缩包：非 UTF-8 包名编码探测；加密包密码输入
-- [ ] 回归样本集 + 对应测试；offscreen 端到端集成测试（open → navigate）
+- [ ] 回归样本集 + 对应测试；offscreen 端到端集成测试（open → navigate；`test_main_window` 已有
+      文件夹翻页与放大换原图的冒烟，待补压缩包、坏图、换屏等场景）
 
 ## M5 · 跨平台
 

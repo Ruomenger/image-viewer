@@ -44,13 +44,16 @@ target_link_libraries(viewer-core PUBLIC
     Qt6::Gui
 )
 
-# GUI application.
-add_executable(image-viewer
-    src/main.cpp
+# GUI layer (window + view), shared by the app and the offscreen tests.
+add_library(viewer-ui STATIC
     src/MainWindow.cpp
     src/ImageView.cpp
 )
-target_link_libraries(image-viewer PRIVATE viewer-core Qt6::Widgets)
+target_link_libraries(viewer-ui PUBLIC viewer-core Qt6::Widgets)
+
+# GUI application.
+add_executable(image-viewer src/main.cpp)
+target_link_libraries(image-viewer PRIVATE viewer-ui)
 
 if(APPLE)
     set_target_properties(image-viewer PROPERTIES

@@ -11,15 +11,38 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QMimeData>
+#include <QScreen>
+#include <QShowEvent>
 #include <QStatusBar>
 #include <QUrl>
+#include <QWindow>
+
+#include <cmath>
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), m_view(new ImageView(this)) {
     setCentralWidget(m_view);
     setAcceptDrops(true);
     buildMenus();
     connectBrowser();
+    // 视图放大到 Fit 档像素被拉伸时,当前页换成原图。
+    connect(m_view, &ImageView::needsSharperImage, &m_browser, &Browser::requestFull);
+    connect(m_view, &ImageView::zoomChanged, this, &MainWindow::updateStatus);
+    updateFitTarget();  // 显示前先按初始屏幕定好,命令行打开的首图就按 Fit 档解
     statusBar()->showMessage(tr("打开图片、文件夹或压缩包以开始"));
+}
+
+void MainWindow::showEvent(QShowEvent* event) {
+    QMainWindow::showEvent(event);
+    // 原生窗口在首次显示时才建好;换屏(含拖到另一块屏幕)时更新 Fit 目标。
+    if (QWindow* window = windowHandle())
+        connect(window, &QWindow::screenChanged, this, &MainWindow::updateFitTarget,
+                Qt::UniqueConnection);
+    updateFitTarget();
+}
+
+void MainWindow::updateFitTarget() {
+    if (const QScreen* s = screen())
+        m_browser.setFitTarget(s->size() * s->devicePixelRatio());
 }
 
 void MainWindow::buildMenus() {
@@ -79,16 +102,20 @@ void MainWindow::openArchive() {
 }
 
 void MainWindow::connectBrowser() {
+    connect(&m_browser, &Browser::opened, this, [this] { m_shownPage = {}; });  // 页号换了来源
     connect(&m_browser, &Browser::openFailed, this, [this](const QString& reason) {
         statusBar()->showMessage(tr("无法打开 %1:%2").arg(m_openingPath, reason), 4000);
     });
     // 换页先更新标题与序号;图到之前保留上一页画面,不清屏、不阻塞。
     connect(&m_browser, &Browser::pageChanged, this, [this](Page page) {
+        m_currentPage = page;
         setWindowTitle(tr("%1 — ImageViewer").arg(pageLabel(page)));
-        statusBar()->showMessage(tr("%1  ·  加载中…").arg(pageLabel(page)));
+        updateStatus();
     });
     connect(&m_browser, &Browser::pageReady, this, &MainWindow::showPage);
     connect(&m_browser, &Browser::pageFailed, this, [this](Page page, const QString& reason) {
+        m_view->clear();  // 不留上一页的画面,免得与标题对不上
+        m_shownPage = {};
         statusBar()->showMessage(tr("%1  ·  %2").arg(pageLabel(page), reason));
     });
     connect(&m_browser, &Browser::reachedEnd, this, [this](bool forward) {
@@ -103,14 +130,32 @@ void MainWindow::openPath(const QString& path) {
 
 void MainWindow::showPage(Page page, const QList<DecodedImage>& images) {
     const DecodedImage& decoded = images.first();  // 单页布局
-    if (!decoded.animation.isEmpty())
-        m_view->setAnimation(decoded.animation, decoded.image);
-    else
-        m_view->setImage(decoded.image);
-    statusBar()->showMessage(tr("%1 × %2  ·  %3")
-                                 .arg(decoded.image.width())
-                                 .arg(decoded.image.height())
-                                 .arg(pageLabel(page)));
+    if (page == m_shownPage) {
+        // 同一页更清晰的图(Fit → Full、Fit 目标调大):只换 pixmap,缩放与平移不动。
+        m_view->replaceImage(decoded.image);
+    } else if (!decoded.animation.isEmpty()) {
+        m_view->setAnimation(decoded.animation, decoded.image, decoded.originalSize);
+    } else {
+        m_view->setImage(decoded.image, decoded.originalSize);
+    }
+    m_shownPage = page;
+    m_shownOriginal = decoded.originalSize;
+    updateStatus();
+}
+
+void MainWindow::updateStatus() {
+    if (!m_currentPage.isValid())
+        return;
+    if (m_currentPage != m_shownPage) {
+        statusBar()->showMessage(tr("%1  ·  加载中…").arg(pageLabel(m_currentPage)));
+        return;
+    }
+    // 尺寸与缩放都相对原图:屏上显示的可能是 Fit 档。
+    statusBar()->showMessage(tr("%1 × %2  ·  %3  ·  %4%")
+                                 .arg(m_shownOriginal.width())
+                                 .arg(m_shownOriginal.height())
+                                 .arg(pageLabel(m_shownPage))
+                                 .arg(std::lround(m_view->zoom() * 100)));
 }
 
 QString MainWindow::pageLabel(Page page) const {
