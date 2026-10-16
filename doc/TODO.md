@@ -30,7 +30,7 @@
 - [x] vcpkg 二进制缓存（Configure 190s → 7s）
 - [x] `CLAUDE.md` / `AGENTS.md` / `doc/` 设计与计划文档
 
-## M1 · 浏览体验核心 ⬅ 下一个
+## M1 · 浏览体验核心 ✅ 已完成
 
 > 目标：翻页流畅不卡顿（命中缓存时 <50ms）。
 
@@ -49,7 +49,10 @@
       EXIF 方向、Browser 打开/导航环绕/错误路径
 - 验收：`ArchiveSource` 读 N 张由 O(n²) 降到 ~O(n) ✅；连续翻页 <50ms（缓存命中，待实测）
 
-## M2 · 现代格式支持
+> 注：M1 的同步取图（`Browser::currentImage()`）、独立 `Prefetcher`、Archive 单游标快路径
+> 将在 M2.5 被替换，原因见 [DESIGN §8](./DESIGN.md#8-修订记录)。
+
+## M2 · 现代格式支持 ✅ 主体完成（余下为可选项）
 
 - [x] `ImageDecoder` 注册表：magic bytes 探测选专用解码器，失败兜底回退 `QImageReader`；
       可解码后缀集合由 decode 模块单点提供（`decodableExtensions()`），来源层据此过滤
@@ -67,26 +70,80 @@
 - [x] 单测：各格式样本解码、解码器选择逻辑
       （HEIC/AVIF：真实 sips 编码样本；RAW：raw.pixls.us 的 CC0 DNG 样本，均在 `test/data/`）
 
+## M2.5 · 管线异步化 ⬅ 下一个
+
+> 目标：UI 线程永不等待读取 / 解码；当前页、预读、缩略图共用一个调度器；按尺寸档解码；
+> 压缩包按实际格式分读取策略。设计见 DESIGN §3、§4，原因见 [DESIGN §8](./DESIGN.md#8-修订记录)。
+> 为什么排在 M3 之前：M3 的胶片条、幻灯片、状态栏都直接建在这一层上。
+>
+> 顺序：解码档 → 调度器 + 缓存 → Browser 异步化 → App 层切换 → 清理。两条压缩包任务只依赖
+> 「`readEntry` 只在工作线程调用」这一契约，可与 Browser / App 层并行做。
+
+- [ ] **解码按目标尺寸**（DESIGN §4.2）：`decodeImage(bytes, nameHint, target)` 返回 `DecodedImage`
+      （`image` / `originalSize` / `animation`），原图不大于目标时直接返回原图；JPEG 走
+      `QImageReader::setScaledSize`；RAW 取内嵌预览（`unpack_thumb` + `sizes.flip`），不够大再
+      `dcraw_process`（非原图开 `half_size`）；HEIF 的 Thumb 用文件内缩略图；其余解原图后在工作线程
+      平滑缩放；输出统一 `RGB32` / `ARGB32_Premultiplied`；动画判定随解码完成、字节随结果返回
+      - 验收：大尺寸 JPEG 按目标解码后不超过目标且 `originalSize` 正确；输出格式断言；
+        RAW 小目标走内嵌预览；动画条目 `animation` 非空、静态为空
+- [ ] **`DecodeScheduler` 取代 `Prefetcher`**（§4.4）：自有优先级队列（P0 当前页 > P1 翻页方向
+      3 页 > P2 反方向 1 页 > P3 缩略图，方向取最近一次翻页）；按 `(EntryKey, 档)` 在途去重
+      （排队中提优先级、执行中挂等待者）；导航后丢弃窗口外的排队任务、换源丢弃旧来源任务；
+      `EntryKey` 带来源 id；线程数 2、栈 8MB 保留；不环绕预读
+      - 验收：用可阻塞、记录读取次数的假来源——P0 请求插到排队的 P1/P2 前面；同一 key 并发请求
+        只读一次；换源后旧来源结果不再送达；RAW 池线程栈回归测试迁移保留
+- [ ] **`ImageCache` 按档分预算**（§4.4）：键 `(EntryKey, 档)`；Fit 预算至少容纳整个预读窗口
+      （默认取 256MB 与「窗口张数 × Fit 目标像素 × 4B」的较大值）；Full 只留当前页；Thumb 独立小预算
+      - 验收：插入 Full 不挤掉 Fit；5K 屏 Fit 目标下默认预算容纳完整预读窗口
+- [ ] **`Browser` 异步化**（§4.6）：`QObject` + 信号（`opened` / `openFailed` / `listingProgress` /
+      `pageChanged` / `pageReady` / `pageFailed` / `reachedEnd`）+ `setFitTarget` / `requestFull`；
+      `open` 后台建列表、成功前保留原来源；命中时同步发 `pageReady`，未命中排队发回，过期结果丢弃；
+      `Page` 结构就位但先只有单页布局；末页改为「停住 + `reachedEnd`」，去掉无条件环绕
+      - 验收：`QSignalSpy` 断言信号顺序与内容；**UI 线程守卫**——测试来源在主线程被 `readEntry`
+        即失败；现有 Browser 单测（打开 / 失败保留原来源 / 坏图 / 动画）迁移到新接口
+- [ ] **App 层切到异步接口**（§4.3）：未就绪时保留上一页画面；场景坐标 = 原图像素，Fit → Full
+      只换 pixmap；放大超过 Fit 分辨率时 `requestFull`；状态栏用 `originalSize`；动画字节取自
+      `DecodedImage`；按屏幕物理像素调 `setFitTarget`（换屏时更新）
+      - 验收：`QT_QPA_PLATFORM=offscreen` 冒烟——打开文件夹连续翻页不阻塞；手测 24MP 照片放大后
+        切到原图清晰度
+- [ ] **压缩包 · 按实际格式分派 + `ZipArchiveSource`**（§4.5）：按 `archive_format()` /
+      `archive_filter_code()` 分派，不信后缀；zip / cbz / 未压缩 tar 无状态随机读，无共享游标、无全局锁
+      - 验收：两线程乱序并发读全部正确；后缀为 `.cbr` 的 zip 走随机读路径；千页 cbz 单次随机读耗时
+        实测并记录（超过约 10ms 则换 libzip / minizip-ng）
+- [ ] **压缩包 · `StreamArchiveSource` + `ByteStore`**（§4.5）：7z / rar / 压缩 tar 后台顺序抽取一遍，
+      编码字节进 `ByteStore`（内存 512MB 内常驻，超出落会话临时目录、关闭即删）；`readEntry` 等目标
+      条目抽取到位；需解压才能列表的格式，列表与抽取同一遍并报进度
+      - 验收：libarchive 现场写 7z / tar.gz 测试包，任意访问顺序下每个条目只解压一次、重开次数为 0；
+        `open` 在抽取完成前返回；超预算落盘、关闭后临时目录被删；RAR 无法现场生成，补一个真实小样本
+- [ ] **清理与文档**：删除 `Prefetcher`、`ArchiveSource` 游标 + 锁、`currentImage()` /
+      `currentAnimation()`；原有回归点（同名 entry、坏包报错、截断包可浏览）迁移保留；同步
+      `CLAUDE.md` 架构说明与 DESIGN 各节「现状」
+- 验收（里程碑）：viewer-core 在调用线程零读取 / 解码（守卫测试）；连续翻页命中 <50ms；
+  打开大 solid 包不冻结界面；流式格式顺序翻 + 回翻每个条目只解压一次
+
 ## M3 · UI / 交互
 
+> 依赖 M2.5：以下功能都建在异步 `Browser` + 调度器上（DESIGN §4.6、§4.7）。
+
 - [ ] 全屏模式
-- [ ] 幻灯片（间隔可配）
-- [ ] 缩略图 / 胶片条
-- [ ] 状态栏（尺寸 / 序号 / 缩放%）+ 信息叠层
-- [ ] 会话记忆（`QSettings`：窗口几何、最近打开、上次目录）
+- [ ] 幻灯片（间隔可配；下一张即 P1 预读）
+- [ ] 缩略图 / 胶片条（调度器 P3 + Thumb 档，只为可见格子请求）
+- [ ] 状态栏（原图尺寸 / 序号 / 缩放%）+ 信息叠层
+- [ ] 双页（跨页）+ 右到左阅读：`PageLayout` 相对当前位置配对、横图单独成页、封面单独、「错开一页」
+- [ ] 末页行为可配（停住 / 环绕 / 下一个来源；默认提示后再翻进入下一个）+ 相邻来源导航
+      （同目录按自然排序的下一个文件夹 / 压缩包，跳过没有图片的）
+- [ ] 会话记忆（`QSettings`：窗口几何、最近打开、上次目录、每个来源的阅读位置与单双页 / 方向）
 - [ ] 深 / 浅主题，可配置快捷键
 - [ ] i18n（中 / 英）
 
 ## M4 · 健壮性与大图
 
+> 原「大压缩包异步扫描」「当前页未命中时异步解码 + 加载占位」两条已并入 M2.5。
+
 - [ ] 错误处理：损坏图片 / 空压缩包 / 超大图 / 无权限 的友好提示（底层通道
-      `openError()` 已就绪，补 UI 呈现与更多场景）
-- [ ] 大压缩包**异步扫描**：`ArchiveSource` 构造时全量扫包在 UI 线程，
-      大 solid 7z 打开会冻结界面 → 列表异步化或加进度提示
-- [ ] 当前页缓存未命中时**异步解码 + 加载占位**：快速翻页越过预读半径时
-      UI 线程不做同步 readEntry/解码
-- [ ] 超大图（gigapixel）分块、按可视区域解码，避免 OOM
-- [ ] 内存预算与缓存自适应
+      `openError()` 与 M2.5 的 `openFailed` / `pageFailed` 信号，补 UI 呈现与更多场景）
+- [ ] 超大图（gigapixel）分块、按可视区域解码，避免 OOM——作为 Full 档的替代挂在调度器请求上
+- [ ] 按系统可用内存自适应缓存预算（M2.5 已按屏幕尺寸定 Fit 预算下限）
 - [ ] 压缩包：非 UTF-8 包名编码探测；加密包密码输入
 - [ ] 回归样本集 + 对应测试；offscreen 端到端集成测试（open → navigate）
 
@@ -98,6 +155,8 @@
 
 ## M6 · 打磨与发布
 
+- [ ] 选定开源协议并加 `LICENSE`：静态链接了 libde265（LGPL-3.0）、LibRaw（LGPL-2.1 / CDDL），
+      协议需与之兼容（宜早做，可随手完成）
 - [ ] 应用图标 / 关于页
 - [ ] 版本号与 CHANGELOG
 - [ ] Release workflow：打 tag 自动产出三平台产物

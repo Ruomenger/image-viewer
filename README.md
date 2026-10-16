@@ -7,7 +7,9 @@ in natural file order. Inspired by [BandiView](https://en.bandisoft.com/bandivie
 **Stack:** C++20 · Qt 6 (Widgets + QGraphicsView) · CMake + vcpkg.
 Qt is consumed as a **prebuilt** install; vcpkg (manifest mode) handles the rest.
 
-> Status: early skeleton. Currently targets **macOS**; Windows/Linux to follow.
+> Status: M0–M2 done (browsing core, LRU cache + prefetch, HEIC/AVIF/RAW, GIF/WebP
+> animation). Next: M2.5 async pipeline rework — see [doc/TODO.md](doc/TODO.md).
+> Currently targets **macOS**; Windows/Linux to follow.
 
 ---
 
@@ -20,7 +22,7 @@ brew install cmake ninja pkg-config
 # 2. Qt 6 — prebuilt, fast
 brew install qt
 
-# 3. vcpkg — for libarchive (and future libheif/libavif/libraw)
+# 3. vcpkg — for libarchive / libheif / libavif / libraw
 git clone https://github.com/microsoft/vcpkg ~/vcpkg
 ~/vcpkg/bootstrap-vcpkg.sh
 ```
@@ -39,7 +41,7 @@ export QT_ROOT=$(brew --prefix qt)   # e.g. /opt/homebrew/opt/qt
 ## Build & run
 
 ```bash
-cmake --preset default          # configures; vcpkg installs libarchive on first run
+cmake --preset default          # configures; vcpkg installs dependencies on first run
 cmake --build --preset default
 
 # run (macOS app bundle)
@@ -60,10 +62,10 @@ cmake --build --preset default          # tests build alongside the app
 ctest --test-dir build/default --output-on-failure
 ```
 
-They cover the testable core (`viewer-core`): extension detection, natural-order
-sorting, non-image filtering, `indexOf`, and archive/folder `readEntry` decoding —
-using on-the-fly generated PNGs and zips (`test/support/TestData`). Disable with
-`-DBUILD_TESTING=OFF`.
+They cover the testable core (`viewer-core`): folder/archive sources, the decoder
+registry, cache and prefetch, and the `Browser` playlist model — using on-the-fly
+generated PNGs and zips (`test/support/TestData`) plus real format samples in
+`test/data/`. Disable with `-DBUILD_TESTING=OFF`.
 
 ## Usage
 
@@ -81,21 +83,19 @@ src/
   main.cpp                 entry point
   MainWindow.{h,cpp}       menus, navigation, drag&drop, open-path dispatch
   ImageView.{h,cpp}        QGraphicsView: smooth zoom / pan / fit
-  source/                  -> built into the `viewer-core` static library
-    ImageSource.h          abstract: count() / entryName() / readEntry()
-    FolderSource.{h,cpp}   images in a directory (natural sort)
-    ArchiveSource.{h,cpp}  images in an archive via libarchive
+  source/                  where bytes come from: ImageSource / FolderSource / ArchiveSource
+  decode/                  bytes -> QImage: decoder registry (libavif / libheif / LibRaw) + QImageReader
+  cache/                   ImageCache (byte-budget LRU) + Prefetcher
+  browse/                  Browser: playlist model (source + current index)
 test/                      Qt Test unit tests for viewer-core
 ```
 
-`source/` is compiled into a GUI-free **`viewer-core`** static library that both the
-app and the tests link against. `ImageSource` decouples "where the bytes come from"
-from "how they're shown", so a folder and an archive look identical to the viewer.
+`source/` `decode/` `cache/` `browse/` compile into a GUI-free **`viewer-core`** static
+library that both the app and the tests link against. `ImageSource` decouples "where the
+bytes come from" from "how they're shown", so a folder and an archive look identical to
+the viewer. Full design — including the planned M2.5 async pipeline (`DecodeScheduler`,
+size-tiered decoding, per-format archive sources) — is in [doc/DESIGN.md](doc/DESIGN.md).
 
 ## Roadmap
 
-- [ ] Prefetch + LRU decode cache; sequential fast-path for archive reads (avoid O(n) re-scan)
-- [ ] Modern formats: HEIC/AVIF/JXL (libheif/libavif), RAW (libraw) — added via vcpkg
-- [ ] Thumbnail strip / filmstrip
-- [ ] Fullscreen & slideshow
-- [ ] Windows / Linux build + CI matrix
+Milestones (M0–M6) and what's next live in [doc/TODO.md](doc/TODO.md).

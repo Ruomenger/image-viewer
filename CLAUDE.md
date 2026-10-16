@@ -50,6 +50,13 @@ same line** (`.clang-format`, `BreakBeforeBraces: Attach`).
 
 ## Architecture
 
+> **Planned rework (M2.5 — read `doc/DESIGN.md` §3/§4/§8 before touching `browse/`,
+> `cache/` or `source/`):** the synchronous `Browser::currentImage()`, the separate
+> `Prefetcher` and the single-cursor `ArchiveSource` described below are being replaced by
+> an async `Browser` (signals), one `DecodeScheduler` (priorities + in-flight dedup),
+> size-tiered decoding (Thumb / Fit / Full) and per-format archive sources. Don't build new
+> features (M3) on the old synchronous API.
+
 The core abstraction is **`ImageSource`** (`src/source/ImageSource.h`): `count()` /
 `entryName()` / `readEntry()`, plus `openError()` to distinguish "failed to open (with a
 reason)" from "opened but empty". It decouples *where image bytes come from* from *how
