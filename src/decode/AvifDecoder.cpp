@@ -29,9 +29,11 @@ QImage decodeAvif(const QByteArray& bytes) {
     if (width <= 0 || height <= 0)
         return {};
 
-    // 直接解到 QImage 的像素缓冲,省一次中间拷贝。
+    // 直接解到 QImage 的像素缓冲,省一次中间拷贝。无 alpha 时 libavif 把第 4 字节
+    // 填满,标成 RGBX 让后续按不透明图处理。
     // 注:irot/imir 方向变换暂未应用(实拍 AVIF 极少携带,后续按需补)。
-    QImage result(width, height, QImage::Format_RGBA8888);
+    QImage result(width, height,
+                  decoder->alphaPresent ? QImage::Format_RGBA8888 : QImage::Format_RGBX8888);
     avifRGBImage rgb;
     avifRGBImageSetDefaults(&rgb, decoder->image);
     rgb.format = AVIF_RGB_FORMAT_RGBA;

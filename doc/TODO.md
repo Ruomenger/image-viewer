@@ -80,13 +80,19 @@
 > 顺序：解码档 → 调度器 + 缓存 → Browser 异步化 → App 层切换 → 清理。两条压缩包任务只依赖
 > 「`readEntry` 只在工作线程调用」这一契约，可与 Browser / App 层并行做。
 
-- [ ] **解码按目标尺寸**（DESIGN §4.2）：`decodeImage(bytes, nameHint, target)` 返回 `DecodedImage`
+- [x] **解码按目标尺寸**（DESIGN §4.2）：`decodeImage(bytes, nameHint, target)` 返回 `DecodedImage`
       （`image` / `originalSize` / `animation`），原图不大于目标时直接返回原图；JPEG 走
-      `QImageReader::setScaledSize`；RAW 取内嵌预览（`unpack_thumb` + `sizes.flip`），不够大再
-      `dcraw_process`（非原图开 `half_size`）；HEIF 的 Thumb 用文件内缩略图；其余解原图后在工作线程
-      平滑缩放；输出统一 `RGB32` / `ARGB32_Premultiplied`；动画判定随解码完成、字节随结果返回
-      - 验收：大尺寸 JPEG 按目标解码后不超过目标且 `originalSize` 正确；输出格式断言；
-        RAW 小目标走内嵌预览；动画条目 `animation` 非空、静态为空
+      `QImageReader::setScaledSize`（EXIF 旋转 90° 时目标随之转置）；RAW 取内嵌 JPEG 预览（长边覆盖
+      目标才用；`dcraw_make_mem_thumb` 按 `sizes.flip` 补 EXIF 方向，交给 Qt 路径摆正），不够大再
+      `dcraw_process`（半尺寸输出仍覆盖目标才开 `half_size`，免得大屏 Fit 档发糊）；HEIF 取覆盖目标的
+      最小内嵌缩略图；其余解原图后在工作线程平滑缩放；输出统一 `RGB32` / `ARGB32_Premultiplied`
+      （HEIF / AVIF 按有无 alpha 出 RGBA / RGBX）；动画判定随解码完成、字节随结果返回。
+      `Browser` / `Prefetcher` 暂仍按原图请求、只取 `.image`，由下面的调度器 / 缓存 / Browser 任务切换
+      - 验收 ✅：大 JPEG 按目标解码（含 EXIF 旋转）不超过目标且 `originalSize` 正确；输出格式断言
+        （alpha / 不透明各有样本）；RAW 小目标与直接解内嵌预览逐像素一致、预览不够大时走全流程；
+        HEIF 小目标解内嵌缩略图；动画条目 `animation` 非空、静态为空。新增样本：`sample.crw`
+        （raw.pixls.us CC0，带 1440×960 预览）、`sample-thumb.heic`（heif-enc）、`sample-opaque.avif`（sips）
+      - 实测（Debug）：CRW 走预览约 4ms / 张，全流程约 1s；无预览的 DNG 开 `half_size` 后约快 5 倍
 - [ ] **`DecodeScheduler` 取代 `Prefetcher`**（§4.4）：自有优先级队列（P0 当前页 > P1 翻页方向
       3 页 > P2 反方向 1 页 > P3 缩略图，方向取最近一次翻页）；按 `(EntryKey, 档)` 在途去重
       （排队中提优先级、执行中挂等待者）；导航后丢弃窗口外的排队任务、换源丢弃旧来源任务；

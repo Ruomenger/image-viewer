@@ -9,5 +9,6 @@
 // ftyp box 的 brand 列表(主 + 兼容)含 avif/avis 即认为是 AVIF。
 bool looksLikeAvif(const QByteArray& bytes);
 
-// 解码 AVIF(动图序列取首帧)为 RGBA QImage;失败返回空 QImage。
+// 解码 AVIF(动图序列取首帧)为 RGBA / RGBX QImage(按有无 alpha);失败返回空 QImage。
+// AV1 没有按尺寸解码的捷径,总是解原图。
 QImage decodeAvif(const QByteArray& bytes);

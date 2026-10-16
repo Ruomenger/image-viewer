@@ -63,7 +63,7 @@
 
 `source/` `decode/` `schedule/` `cache/` `browse/` 编译为无 GUI 的 `viewer-core` 静态库，App 与测试共享。
 
-> **现状与目标**：当前代码（M2）仍是同步拉取——`Browser::currentImage()` 在调用线程（UI）读取并解码，`Prefetcher` 另走一条预读路径，`ArchiveSource` 用单游标加锁顺序读，`decodeImage()` 永远解原尺寸。M2.5 落地上图结构。
+> **现状与目标**：当前代码（M2）仍是同步拉取——`Browser::currentImage()` 在调用线程（UI）读取并解码，`Prefetcher` 另走一条预读路径，`ArchiveSource` 用单游标加锁顺序读。`decodeImage()` 已能按目标尺寸解码（M2.5 第一步），但调用方仍按原图请求。M2.5 落地上图结构。
 
 ## 4. 关键子系统
 
@@ -77,11 +77,10 @@
 - **演进**：递归子目录；包内子目录；非 UTF-8 包名编码探测（GBK 等，用 `QStringDecoder`/ICU）；加密包密码回调。
 
 ### 4.2 解码与格式
-- **现状**：统一入口 `decodeImage(bytes, nameHint)`（`src/decode/`）= **解码器注册表**（magic bytes + 后缀探测选专用解码器：**libavif**+dav1d 解 AVIF、**libheif**+libde265 解 HEIC/HEIF、**LibRaw** 解相机 RAW——RAW 无统一 magic 按后缀判定；ftyp 探测共用 `FtypBox`，AVIF 排在 HEIF 前消歧 mif1 主 brand；均仅解码）+ 兜底 `QImageReader`（内置 PNG/BMP/PPM…；插件 JPEG/GIF/WebP/TIFF via qtimageformats；EXIF 方向 autoTransform）。可解码后缀由 `decodableExtensions()` 单点提供，来源层据此过滤——「能列出的就能解码」由 decode 模块负责。
-- **动画（现状）**：`Browser::currentAnimation()` 对多帧条目（后缀预筛 gif/webp/png + `QImageReader` 探测帧数）返回原始字节，`ImageView` 用 `QMovie` 播放；缓存与预读只存首帧。APNG 取决于 Qt png 插件支持（当前按静态首帧）。
-- **问题**：
-  - `decodeImage()` 永远解原尺寸。2400 万像素照片解成 `RGB32` 约 96MB，默认 256MB 预算只放得下 2 张，而预读窗口要放 5 张（当前 + 前 3 + 后 1）——后入的预读图把先入的挤掉，翻到下一张反而未命中。
-  - HEIF / AVIF 输出 `RGBA8888`、RAW 输出 `RGB888`，到 UI 线程 `QPixmap::fromImage` 时还要整图转换格式。
+- **现状**：统一入口 `decodeImage(bytes, nameHint, target)`（`src/decode/`）= **解码器注册表**（magic bytes + 后缀探测选专用解码器：**libavif**+dav1d 解 AVIF、**libheif**+libde265 解 HEIC/HEIF、**LibRaw** 解相机 RAW——RAW 无统一 magic 按后缀判定；ftyp 探测共用 `FtypBox`，AVIF 排在 HEIF 前消歧 mif1 主 brand；均仅解码）+ 兜底 `QImageReader`（内置 PNG/BMP/PPM…；插件 JPEG/GIF/WebP/TIFF via qtimageformats；EXIF 方向 autoTransform）。可解码后缀由 `decodableExtensions()` 单点提供，来源层据此过滤——「能列出的就能解码」由 decode 模块负责。按目标尺寸解码、显示格式输出、动画字节随结果返回均已落地（见下方「目标」，M2.5 第一步）；专用解码器可返回大于目标的图，由 `decodeImage` 统一缩放与转格式。
+- **动画（现状）**：`decodeImage` 已在 Qt 路径顺手判定多帧并返回字节，但 `Browser::currentAnimation()` 仍对多帧条目（后缀预筛 gif/webp/png + `QImageReader` 探测帧数）重读一遍原始字节，`ImageView` 用 `QMovie` 播放；缓存与预读只存首帧。APNG 取决于 Qt png 插件支持（当前按静态首帧）。
+- **问题**（解码层已就绪，剩下的在调用方，随调度器 / 缓存 / Browser 任务解决）：
+  - `Browser` / `Prefetcher` 仍按原图请求。2400 万像素照片解成 `RGB32` 约 96MB，默认 256MB 预算只放得下 2 张，而预读窗口要放 5 张（当前 + 前 3 + 后 1）——后入的预读图把先入的挤掉，翻到下一张反而未命中。
   - 动画判定要在 UI 线程二次读取字节（压缩包里还会触发重扫，见 §4.5）。
 
 **目标（M2.5）**：解码按**目标尺寸**——`decodeImage(bytes, nameHint, target)`，`target` 为空表示原图。调度 / 缓存层用三个**尺寸档**换算 `target`：
@@ -95,11 +94,11 @@
 原图不大于目标时直接返回原图（此时 Fit 即 Full，不再另解）。
 
 - 各解码器按目标尺寸走捷径：
-  - JPEG：`QImageReader::setScaledSize`（libjpeg DCT 1/2、1/4、1/8 缩放，解码量成倍下降）。
-  - RAW：取**内嵌 JPEG 预览**（LibRaw `unpack_thumb`，按 `sizes.flip` 旋转）；预览不够大才走 `dcraw_process`（非原图时开 `half_size`，输出边长减半、快很多）；只有 Full 跑完整流程。
-  - HEIF：Thumb 用文件内缩略图。
+  - JPEG：`QImageReader::setScaledSize`（libjpeg DCT 1/2、1/4、1/8 缩放，解码量成倍下降）。`ScaledSize` 作用在 EXIF 旋转之前，带 90° 旋转的图按转置后的目标换算。
+  - RAW：取**内嵌 JPEG 预览**（LibRaw `unpack_thumb`），长边覆盖目标才用；预览缺 EXIF 时 `dcraw_make_mem_thumb` 会按 `sizes.flip` 补一段方向标记，交给 QImageReader 路径摆正并走 DCT 缩放。预览不够大才走 `dcraw_process`：半尺寸输出仍覆盖目标时开 `half_size`（输出边长减半、快很多），否则全尺寸再缩——无条件开会让大屏的 Fit 档比屏幕还糊；只有 Full 跑完整流程且不用预览。`originalSize` 恒为全流程输出尺寸（`get_mem_image_format`，open 后即可取）。
+  - HEIF：取长边覆盖目标的最小内嵌缩略图（iPhone 约 320px，实际只有 Thumb 档会命中）。
   - 其余格式：解原图后在工作线程平滑缩放。
-- 输出统一为 `RGB32`（不透明）/ `ARGB32_Premultiplied`（有 alpha），格式转换留在工作线程。
+- 输出统一为 `RGB32`（不透明）/ `ARGB32_Premultiplied`（有 alpha），格式转换留在工作线程。HEIF / AVIF 无 alpha 时标成 `RGBX8888`，按不透明处理。
 - 返回结构如下；动画判定在工作线程顺手完成（字节已在手），取代 `currentAnimation()` 的二次读取：
 
 ```cpp

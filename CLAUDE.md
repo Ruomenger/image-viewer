@@ -36,7 +36,7 @@ scripts/tidy.sh [--strict]     # clang-tidy，需先配置构建目录；--stric
 ## 架构
 
 - `src/source/`：`ImageSource`（`count` / `entryName` / `readEntry` / `openError`），文件夹与压缩包对上层一致。
-- `src/decode/`：`decodeImage()` 是唯一的解码入口（专用解码器注册表 + QImageReader 兜底）；`decodableExtensions()` 是「哪些后缀算图片」的唯一来源。
+- `src/decode/`：`decodeImage(bytes, nameHint, target)` 是唯一的解码入口（专用解码器注册表 + QImageReader 兜底），按目标尺寸解码并返回 `DecodedImage`（显示格式的图 + 原图尺寸 + 动画字节）；`decodableExtensions()` 是「哪些后缀算图片」的唯一来源。
 - `src/cache/`、`src/browse/`：`ImageCache`、`Prefetcher`、`Browser`（来源 + 当前索引）。
 - 以上编译成无 GUI 的 `viewer-core` 静态库，app 和测试都链接它；`MainWindow` / `ImageView` 只做展示。
 
