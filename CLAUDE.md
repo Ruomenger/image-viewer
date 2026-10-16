@@ -1,110 +1,57 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+给 Claude Code 等 agent 的仓库速查。详细设计见 `doc/DESIGN.md`，迭代计划见 `doc/TODO.md`——开工前先看 TODO 确定当前里程碑。
 
-## Project
+## 项目
 
-Cross-platform (macOS → Windows/Linux) open-source image viewer with archive browsing,
-inspired by BandiView: view many image formats and page through images **inside** archives
-(`.zip` / `.cbz` / `.7z` / `.rar` / `.tar`) in natural file order.
+跨平台开源看图器（对标 BandiView）：浏览各种格式的图片，按自然顺序翻看压缩包（zip / cbz / 7z / rar / tar）里的图片。目前只做 macOS，Windows / Linux 在 M5。
 
-Stack: **C++23 · Qt 6.12 (Widgets + QGraphicsView) · CMake + vcpkg**. Currently macOS-only;
-Windows/Linux come later. Qt is consumed as a **prebuilt** install; vcpkg (manifest mode)
-provides everything else.
+技术栈：**C++23 · Qt 6.12（Widgets + QGraphicsView）· CMake + vcpkg**。Qt 用预编译版（本地是 Homebrew），其余依赖由 vcpkg（manifest 模式）提供。
 
-Full design in `doc/DESIGN.md`; the milestone/iteration plan (what to do next) in
-`doc/TODO.md` — consult it before starting feature work.
-
-## Build / run / test
-
-Requires two environment variables (the CMake preset reads them):
+## 构建 / 运行 / 测试
 
 ```bash
-export VCPKG_ROOT=/path/to/vcpkg          # a microsoft/vcpkg checkout
-export QT_ROOT=$(brew --prefix qt)        # prebuilt Qt 6 (Homebrew locally)
+export VCPKG_ROOT=/path/to/vcpkg          # CMake preset 读这两个环境变量
+export QT_ROOT=$(brew --prefix qt)
 
-cmake --preset default                    # configure; vcpkg installs deps on first run
-cmake --build --preset default            # builds app + viewer-core + tests
-ctest --test-dir build/default --output-on-failure   # run all tests
-ctest --test-dir build/default -R test_archive_source # run ONE test target
+cmake --preset default                    # 配置；首次会由 vcpkg 编译依赖
+cmake --build --preset default            # 编译 app + viewer-core + 测试
+ctest --test-dir build/default --output-on-failure      # 全部测试
+ctest --test-dir build/default -R test_archive_source   # 单个测试
 
-# run the app
-./build/default/image-viewer.app/Contents/MacOS/image-viewer [path-to-image|folder|archive]
+./build/default/image-viewer.app/Contents/MacOS/image-viewer [图片|文件夹|压缩包]
 ```
 
-Use `--preset release` for an optimized build. Headless smoke-run: prefix with
-`QT_QPA_PLATFORM=offscreen`.
+优化构建用 `--preset release`；无界面冒烟运行加 `QT_QPA_PLATFORM=offscreen`。
 
-### Lint / format (also gated in CI)
+## 格式与静态检查（CI 也卡这两项）
 
 ```bash
-scripts/format.sh            # clang-format -i over src/ and test/
-scripts/format.sh --check    # verify only (CI uses this)
-scripts/tidy.sh              # clang-tidy over src/ (needs a configured build dir)
-scripts/tidy.sh --strict     # warnings-as-errors (CI uses this)
+scripts/format.sh [--check]    # clang-format；--check 只检查不改（CI 用）
+scripts/tidy.sh [--strict]     # clang-tidy，需先配置构建目录；--strict 有告警即失败（CI 用）
 ```
 
-Scripts target macOS bash 3.2 and inject the SDK sysroot so Homebrew `clang-tidy` can parse
-AppleClang's `compile_commands.json`. Code style is **Go-like: opening braces stay on the
-same line** (`.clang-format`, `BreakBeforeBraces: Attach`).
+代码风格：大括号不换行（Go 风格，`BreakBeforeBraces: Attach`）。脚本兼容 macOS 自带的 bash 3.2，并为 Homebrew clang-tidy 注入 SDK sysroot。
 
-## Architecture
+## 架构
 
-> **Planned rework (M2.5 — read `doc/DESIGN.md` §3/§4/§8 before touching `browse/`,
-> `cache/` or `source/`):** the synchronous `Browser::currentImage()`, the separate
-> `Prefetcher` and the single-cursor `ArchiveSource` described below are being replaced by
-> an async `Browser` (signals), one `DecodeScheduler` (priorities + in-flight dedup),
-> size-tiered decoding (Thumb / Fit / Full) and per-format archive sources. Don't build new
-> features (M3) on the old synchronous API.
+- `src/source/`：`ImageSource`（`count` / `entryName` / `readEntry` / `openError`），文件夹与压缩包对上层一致。
+- `src/decode/`：`decodeImage()` 是唯一的解码入口（专用解码器注册表 + QImageReader 兜底）；`decodableExtensions()` 是「哪些后缀算图片」的唯一来源。
+- `src/cache/`、`src/browse/`：`ImageCache`、`Prefetcher`、`Browser`（来源 + 当前索引）。
+- 以上编译成无 GUI 的 `viewer-core` 静态库，app 和测试都链接它；`MainWindow` / `ImageView` 只做展示。
 
-The core abstraction is **`ImageSource`** (`src/source/ImageSource.h`): `count()` /
-`entryName()` / `readEntry()`, plus `openError()` to distinguish "failed to open (with a
-reason)" from "opened but empty". It decouples *where image bytes come from* from *how
-they're shown*, so a folder and an archive look identical to the viewer.
+> **M2.5 重构进行中**：改 `browse/` `cache/` `source/` 之前先读 `doc/DESIGN.md` §3、§4、§8。同步的 `Browser::currentImage()`、独立的 `Prefetcher`、单游标的 `ArchiveSource` 都会被替换（异步 Browser + `DecodeScheduler` + 按尺寸档解码 + 压缩包按格式分来源）。**不要在旧的同步接口上开发 M3 功能。**
 
-- `FolderSource` — images in a directory, natural-sorted (`QCollator` numeric mode).
-- `ArchiveSource` — images inside an archive via **libarchive**, with a sequential
-  fast-path: a persistent reader + per-entry ordinal index makes forward paging O(1)
-  amortized (only backward seeks reopen); concurrent reads serialize on an internal mutex.
+测试用 Qt Test（`test/`）：PNG 用 `QImage` 现生成，zip 用 libarchive 现写（`test/support/TestData`），各格式真实样本放在 `test/data/`；不要手写字节。
 
-Decoding goes exclusively through **`decodeImage()`** (`src/decode/`) — a decoder
-registry: probes (magic bytes, plus the name-hint suffix for RAW which has no unified
-magic) pick a specialized decoder — **libavif**+dav1d for AVIF, **libheif**+libde265 for
-HEIC/HEIF, **LibRaw** (`raw_r`, thread-safe) for camera RAW; AVIF is probed before HEIF
-to disambiguate mif1-branded files — falling back to QImageReader (EXIF auto-rotation).
-`decodableExtensions()` is the single source of truth for which suffixes count as images;
-sources filter with it. **`Browser`** (`src/browse/`) is the
-playlist model — source + current index — orchestrating cache lookup → decode → prefetch
-over **`ImageCache`** (byte-budget LRU, generation-guarded against stale inserts after a
-source switch) and **`Prefetcher`** (forward-biased, default 3 ahead / 1 behind); its
-`currentAnimation()` returns raw bytes for multi-frame entries (GIF/WebP) which
-`ImageView` plays via QMovie — cache/prefetch still hold only the first frame. All of
-this compiles into a **GUI-free `viewer-core` static library** (see top-level
-`CMakeLists.txt`) that **both the app and the tests link against** — so core logic is
-tested without the GUI. The app layer (`src/MainWindow`, `src/ImageView`) is
-presentation-only: `MainWindow` talks to `Browser`; `ImageView` is a `QGraphicsView`
-subclass handling zoom/pan/fit.
+## 约定
 
-Tests use **Qt Test** (`test/`), generating real PNGs via `QImage` and real zips via
-libarchive (`test/support/TestData`) — never hand-crafted bytes.
+- 提交：约定式前缀 + 中文描述，正文用 `1. 2. 3.` 编号，**不加 `Co-Authored-By`**。
+- CI 的 Qt 版本与本地 Homebrew Qt 保持一致。
 
-## Conventions
+## CI 的坑（`.github/workflows/ci.yml`，macOS）
 
-- **Commits**: Conventional-commit prefix + **Chinese** description; body as a `1. 2. 3.`
-  numbered list; **no `Co-Authored-By` lines**.
-- Keep the CI Qt version aligned with local Homebrew Qt.
-
-## CI gotchas (`.github/workflows/ci.yml`, macOS)
-
-- **Qt must be 6.11+** (CI pins `6.12.*` to match local Homebrew). Qt 6.8's QtGui links the
-  `AGL` framework, which was removed from the Xcode 26 SDK that `macos-latest` ships →
-  `ld: framework 'AGL' not found`. 6.11 dropped it.
-- **clang-tidy / clang-format are unpinned** (CI does `brew install llvm` / `clang-format`, i.e.
-  latest). A new LLVM major can add checks and break `tidy.sh --strict` with no code change —
-  LLVM 23 added `readability-trailing-comma` and `bugprone-signed-bitwise`. Homebrew's `llvm@23`
-  is only an alias of `llvm` until LLVM 24 ships; then CI can pin `llvm@23`.
-- **vcpkg binary cache**: `lukka/run-vcpkg` forces `VCPKG_BINARY_SOURCES=clear;x-gha` and
-  relocates the default cache, which defeats caching `~/.cache/vcpkg/archives`. The working
-  setup overrides `VCPKG_BINARY_SOURCES` on the Configure step to a `files` provider dir that
-  `actions/cache` persists (Configure: ~190s cold → ~7s warm).
-- `vcpkg.json`'s `builtin-baseline` must match `run-vcpkg`'s `vcpkgGitCommitId`.
+- **Qt 至少 6.11**（CI 锁 `6.12.*`）：6.8 的 QtGui 链接了 `AGL`，而 Xcode 26 SDK 已移除该框架，会报 `ld: framework 'AGL' not found`。
+- **clang-tidy / clang-format 没锁版本**（CI 装 Homebrew 最新版）：LLVM 新主版本可能新增检查，代码不变也会让 `--strict` 失败（LLVM 23 新增了 `readability-trailing-comma`、`bugprone-signed-bitwise`）。`llvm@23` 目前只是 `llvm` 的别名，等 LLVM 24 发布后才能锁版本。
+- **vcpkg 二进制缓存**：`lukka/run-vcpkg` 会强制 `VCPKG_BINARY_SOURCES=clear;x-gha`，使缓存失效；Configure 步骤要把它覆盖成由 `actions/cache` 持久化的 `files` 目录（冷启动约 190s → 命中约 7s）。
+- `vcpkg.json` 的 `builtin-baseline` 必须和 `run-vcpkg` 的 `vcpkgGitCommitId` 一致。
