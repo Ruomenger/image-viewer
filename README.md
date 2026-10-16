@@ -8,8 +8,8 @@ in natural file order. Inspired by [BandiView](https://en.bandisoft.com/bandivie
 Qt is consumed as a **prebuilt** install; vcpkg (manifest mode) handles the rest.
 
 > Status: M0–M2 done (browsing core, LRU cache + prefetch, HEIC/AVIF/RAW, GIF/WebP
-> animation). In progress: M2.5 async pipeline rework (size-tiered decoding and the
-> `DecodeScheduler` are in) — see [doc/TODO.md](doc/TODO.md).
+> animation). In progress: M2.5 async pipeline rework (size-tiered decoding, the
+> `DecodeScheduler` and the async `Browser` are in) — see [doc/TODO.md](doc/TODO.md).
 > Currently targets **macOS**; Windows/Linux to follow.
 
 ---

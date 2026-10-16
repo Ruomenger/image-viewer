@@ -108,12 +108,20 @@
       Fit 预算至少容纳整个预读窗口（`setFitTarget` 时取构造预算 256MB 与「窗口张数 × Fit 目标像素 × 4B」
       的较大值）；Full 只留一张、不设字节上限；Thumb 独立 32MB；代次机制随之删除（正确性靠键里的来源 id）
       - 验收 ✅：插入 Full 不挤掉 Fit、刷 Thumb 不挤掉 Fit；5K 屏 Fit 目标下预算容纳完整预读窗口（5 张）
-- [ ] **`Browser` 异步化**（§4.6）：`QObject` + 信号（`opened` / `openFailed` / `listingProgress` /
+- [x] **`Browser` 异步化**（§4.6）：`QObject` + 信号（`opened` / `openFailed` / `listingProgress` /
       `pageChanged` / `pageReady` / `pageFailed` / `reachedEnd`）+ `setFitTarget` / `requestFull`；
       `open` 后台建列表、成功前保留原来源；命中时同步发 `pageReady`，未命中排队发回，过期结果丢弃；
-      `Page` 结构就位但先只有单页布局；末页改为「停住 + `reachedEnd`」，去掉无条件环绕
-      - 验收：`QSignalSpy` 断言信号顺序与内容；**UI 线程守卫**——测试来源在主线程被 `readEntry`
-        即失败；现有 Browser 单测（打开 / 失败保留原来源 / 坏图 / 动画）迁移到新接口
+      `Page` 结构就位但先只有单页布局；末页改为「停住 + `reachedEnd`」，去掉无条件环绕。
+      列表在 Browser 自有的单线程里建，不排进调度器（调度器不可抢占，P0 也得等执行中的 RAW 解完）；
+      连续 open 只有最后一次生效；`openSource()` 打开已建好的来源（测试注入假来源，M3 相邻来源也走它）；
+      同一页的 `pageReady` 只在更清晰时重发（Full 到位、Fit 目标调大）；`listingProgress` 待
+      `StreamArchiveSource` 落地后发出。`currentImage()` / `currentAnimation()` 与只为二次读取存在的
+      `maybeAnimatedName` / `isAnimatedImage` 已删除，`MainWindow` 改接信号
+      - 验收 ✅：`QSignalSpy` / 信号记录器断言 `opened → pageChanged → pageReady` 顺序、`open` 返回时尚无
+        结果、末页 / 首页 `reachedEnd`、已翻走的页不送达、缓存命中同步发出、后发的 `open` 胜出；
+        **UI 线程守卫**（`FakeSource::forbidReadsOn`，故意在调用线程读一次即失败，已验证）；
+        `requestFull` 换原图且原图不大于 Fit 时不重解；Fit 目标调大重解、调小不重发；
+        原有单测（打开 / 单文件定位 / 压缩包 / 失败保留原来源 / 坏图 / 动画）迁移到新接口
 - [ ] **App 层切到异步接口**（§4.3）：未就绪时保留上一页画面；场景坐标 = 原图像素，Fit → Full
       只换 pixmap；放大超过 Fit 分辨率时 `requestFull`；状态栏用 `originalSize`；动画字节取自
       `DecodedImage`；按屏幕物理像素调 `setFitTarget`（换屏时更新）
@@ -128,8 +136,8 @@
       条目抽取到位；需解压才能列表的格式，列表与抽取同一遍并报进度
       - 验收：libarchive 现场写 7z / tar.gz 测试包，任意访问顺序下每个条目只解压一次、重开次数为 0；
         `open` 在抽取完成前返回；超预算落盘、关闭后临时目录被删；RAR 无法现场生成，补一个真实小样本
-- [ ] **清理与文档**：删除 `ArchiveSource` 游标 + 锁、`currentImage()` /
-      `currentAnimation()`（`Prefetcher` 已随调度器删除）；原有回归点（同名 entry、坏包报错、截断包可浏览）迁移保留；同步
+- [ ] **清理与文档**：删除 `ArchiveSource` 游标 + 锁（`Prefetcher`、`currentImage()` /
+      `currentAnimation()` 已在前面的任务中删除）；原有回归点（同名 entry、坏包报错、截断包可浏览）迁移保留；同步
       `CLAUDE.md` 架构说明与 DESIGN 各节「现状」
 - 验收（里程碑）：viewer-core 在调用线程零读取 / 解码（守卫测试）；连续翻页命中 <50ms；
   打开大 solid 包不冻结界面；流式格式顺序翻 + 回翻每个条目只解压一次

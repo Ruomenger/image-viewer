@@ -18,6 +18,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), m_view(new ImageV
     setCentralWidget(m_view);
     setAcceptDrops(true);
     buildMenus();
+    connectBrowser();
     statusBar()->showMessage(tr("打开图片、文件夹或压缩包以开始"));
 }
 
@@ -77,48 +78,54 @@ void MainWindow::openArchive() {
         openPath(path);
 }
 
-void MainWindow::openPath(const QString& path) {
-    QString error;
-    if (!m_browser.open(path, &error)) {
-        statusBar()->showMessage(tr("无法打开 %1:%2").arg(path, error), 4000);
-        return;
-    }
-    showCurrent();
+void MainWindow::connectBrowser() {
+    connect(&m_browser, &Browser::openFailed, this, [this](const QString& reason) {
+        statusBar()->showMessage(tr("无法打开 %1:%2").arg(m_openingPath, reason), 4000);
+    });
+    // 换页先更新标题与序号;图到之前保留上一页画面,不清屏、不阻塞。
+    connect(&m_browser, &Browser::pageChanged, this, [this](Page page) {
+        setWindowTitle(tr("%1 — ImageViewer").arg(pageLabel(page)));
+        statusBar()->showMessage(tr("%1  ·  加载中…").arg(pageLabel(page)));
+    });
+    connect(&m_browser, &Browser::pageReady, this, &MainWindow::showPage);
+    connect(&m_browser, &Browser::pageFailed, this, [this](Page page, const QString& reason) {
+        statusBar()->showMessage(tr("%1  ·  %2").arg(pageLabel(page), reason));
+    });
+    connect(&m_browser, &Browser::reachedEnd, this, [this](bool forward) {
+        statusBar()->showMessage(forward ? tr("已是最后一张") : tr("已是第一张"), 2000);
+    });
 }
 
-void MainWindow::showCurrent() {
-    const QImage image = m_browser.currentImage();
-    const QString name = m_browser.currentName();
+void MainWindow::openPath(const QString& path) {
+    m_openingPath = path;
+    m_browser.open(path);  // 后台建列表;结果经 opened / openFailed 信号回来
+}
 
-    if (image.isNull()) {
-        statusBar()->showMessage(tr("无法解码: %1").arg(name), 4000);
-        return;
-    }
-
-    const int position = m_browser.currentIndex() + 1;
-    const int total = m_browser.count();
-    const QByteArray animation = m_browser.currentAnimation();
-    if (!animation.isEmpty())
-        m_view->setAnimation(animation, image);
+void MainWindow::showPage(Page page, const QList<DecodedImage>& images) {
+    const DecodedImage& decoded = images.first();  // 单页布局
+    if (!decoded.animation.isEmpty())
+        m_view->setAnimation(decoded.animation, decoded.image);
     else
-        m_view->setImage(image);
-    setWindowTitle(tr("%1  (%2/%3) — ImageViewer").arg(name).arg(position).arg(total));
-    statusBar()->showMessage(
-        tr("%1 × %2  ·  %3/%4").arg(image.width()).arg(image.height()).arg(position).arg(total));
+        m_view->setImage(decoded.image);
+    statusBar()->showMessage(tr("%1 × %2  ·  %3")
+                                 .arg(decoded.image.width())
+                                 .arg(decoded.image.height())
+                                 .arg(pageLabel(page)));
+}
+
+QString MainWindow::pageLabel(Page page) const {
+    return tr("%1  (%2/%3)")
+        .arg(m_browser.entryName(page.first))
+        .arg(page.first + 1)
+        .arg(m_browser.count());
 }
 
 void MainWindow::next() {
-    if (!m_browser.hasSource())
-        return;
     m_browser.next();
-    showCurrent();
 }
 
 void MainWindow::prev() {
-    if (!m_browser.hasSource())
-        return;
     m_browser.prev();
-    showCurrent();
 }
 
 void MainWindow::dragEnterEvent(QDragEnterEvent* event) {

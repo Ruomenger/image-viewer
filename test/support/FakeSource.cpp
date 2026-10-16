@@ -14,6 +14,10 @@ QString FakeSource::entryName(int index) const {
 
 QByteArray FakeSource::readEntry(int index) const {
     QMutexLocker locker(&m_mutex);
+    if (m_forbidden != nullptr && QThread::currentThread() == m_forbidden) {
+        ++m_forbiddenReads;
+        qWarning("FakeSource: readEntry(%d) 在被禁止的线程上调用", index);
+    }
     m_order.append(index);
     m_changed.wakeAll();
     while (m_blocked)
@@ -35,6 +39,16 @@ void FakeSource::release() {
     const QMutexLocker locker(&m_mutex);
     m_blocked = false;
     m_changed.wakeAll();
+}
+
+void FakeSource::forbidReadsOn(QThread* thread) {
+    const QMutexLocker locker(&m_mutex);
+    m_forbidden = thread;
+}
+
+int FakeSource::forbiddenReads() const {
+    const QMutexLocker locker(&m_mutex);
+    return m_forbiddenReads;
 }
 
 bool FakeSource::waitForReads(int n, int timeoutMs) const {

@@ -39,10 +39,10 @@ scripts/tidy.sh [--strict]     # clang-tidy，需先配置构建目录；--stric
 - `src/decode/`：`decodeImage(bytes, nameHint, target)` 是唯一的解码入口（专用解码器注册表 + QImageReader 兜底），按目标尺寸解码并返回 `DecodedImage`（显示格式的图 + 原图尺寸 + 动画字节）；`decodableExtensions()` 是「哪些后缀算图片」的唯一来源。
 - `src/schedule/`：`DecodeScheduler` 是读取 + 解码的唯一入口（P0 当前页 > P1 翻页方向 > P2 反方向 > P3 缩略图，按 `(EntryKey, 档)` 在途去重，结果写缓存后以信号回 UI 线程）。
 - `src/cache/`：`ImageCache` 按档（Thumb / Fit / Full）分道 LRU，键 `ImageKey` = (来源 id, 列表下标, 档)。
-- `src/browse/`：`Browser`（来源 + 当前索引）；过渡态——当前页未命中仍同步解码，预读走调度器。
+- `src/browse/`：`Browser`（`QObject`，来源 + 当前页）全异步：后台建列表，`pageChanged` / `pageReady` 等信号回 UI；调用线程上不读字节、不解码（`test_browser` 有守卫测试）。
 - 以上编译成无 GUI 的 `viewer-core` 静态库，app 和测试都链接它；`MainWindow` / `ImageView` 只做展示。
 
-> **M2.5 重构进行中**：改 `browse/` `cache/` `source/` 之前先读 `doc/DESIGN.md` §3、§4、§8。按尺寸档解码、`DecodeScheduler`、分档缓存已落地；同步的 `Browser::currentImage()` / `currentAnimation()`、单游标的 `ArchiveSource` 还会被替换（异步 Browser + 压缩包按格式分来源）。**不要在旧的同步接口上开发 M3 功能。**
+> **M2.5 重构进行中**：改 `browse/` `cache/` `source/` 之前先读 `doc/DESIGN.md` §3、§4、§8。按尺寸档解码、`DecodeScheduler`、分档缓存、异步 `Browser` 已落地；App 层（原图像素坐标、Fit 目标、Full 档）与单游标的 `ArchiveSource`（将按格式分来源）还没切换。
 
 测试用 Qt Test（`test/`）：PNG 用 `QImage` 现生成，zip 用 libarchive 现写（`test/support/TestData`），各格式真实样本放在 `test/data/`；不要手写字节。
 

@@ -28,8 +28,11 @@ protected:
 
 private:
     void buildMenus();
-    void showCurrent();
+    void connectBrowser();
+    void showPage(Page page, const QList<DecodedImage>& images);
+    QString pageLabel(Page page) const;  // 「文件名 (序号/总数)」
 
     ImageView* m_view = nullptr;
-    Browser m_browser;  // 导航 / 缓存 / 预读的编排都在 viewer-core 的 Browser 里
+    Browser m_browser;      // 导航 / 缓存 / 解码调度都在 viewer-core 的 Browser 里,全部异步
+    QString m_openingPath;  // 最近一次 openPath 的路径,用于报错
 };

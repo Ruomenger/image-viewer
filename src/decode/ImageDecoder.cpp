@@ -45,7 +45,7 @@ constexpr Decoder kDecoders[] = {
     },
 };
 
-// QMovie 能播的多帧动画:插件支持动画且帧数 > 1。
+// QMovie 能播的多帧动画:插件支持动画且帧数 > 1。APNG 取决于 Qt png 插件,通常按静态首帧。
 bool readerIsAnimated(QImageReader& reader) {
     return reader.supportsAnimation() && reader.imageCount() > 1;
 }
@@ -133,29 +133,6 @@ QSize fitWithin(QSize size, QSize target) {
         return size;
     // 极端长宽比按比例缩时短边可能截断成 0,至少留 1px。
     return size.scaled(target, Qt::KeepAspectRatio).expandedTo(QSize(1, 1));
-}
-
-bool maybeAnimatedName(const QString& name) {
-    static const QSet<QString> kAnimatable = {
-        QStringLiteral("gif"),
-        QStringLiteral("webp"),
-        QStringLiteral("png"),  // APNG 同后缀
-        QStringLiteral("apng"),
-    };
-    return kAnimatable.contains(QFileInfo(name).suffix().toLower());
-}
-
-bool isAnimatedImage(const QByteArray& bytes) {
-    if (bytes.isEmpty())
-        return false;
-
-    QBuffer buffer;
-    buffer.setData(bytes);
-    if (!buffer.open(QIODevice::ReadOnly))
-        return false;
-
-    QImageReader reader(&buffer);
-    return readerIsAnimated(reader);
 }
 
 const QSet<QString>& decodableExtensions() {
