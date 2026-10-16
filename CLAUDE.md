@@ -8,7 +8,7 @@ Cross-platform (macOS → Windows/Linux) open-source image viewer with archive b
 inspired by BandiView: view many image formats and page through images **inside** archives
 (`.zip` / `.cbz` / `.7z` / `.rar` / `.tar`) in natural file order.
 
-Stack: **C++20 · Qt 6 (Widgets + QGraphicsView) · CMake + vcpkg**. Currently macOS-only;
+Stack: **C++23 · Qt 6.12 (Widgets + QGraphicsView) · CMake + vcpkg**. Currently macOS-only;
 Windows/Linux come later. Qt is consumed as a **prebuilt** install; vcpkg (manifest mode)
 provides everything else.
 
@@ -96,8 +96,13 @@ libarchive (`test/support/TestData`) — never hand-crafted bytes.
 
 ## CI gotchas (`.github/workflows/ci.yml`, macOS)
 
-- **Qt must be 6.11+**. Qt 6.8's QtGui links the `AGL` framework, which was removed from the
-  Xcode 26 SDK that `macos-latest` ships → `ld: framework 'AGL' not found`. 6.11 dropped it.
+- **Qt must be 6.11+** (CI pins `6.12.*` to match local Homebrew). Qt 6.8's QtGui links the
+  `AGL` framework, which was removed from the Xcode 26 SDK that `macos-latest` ships →
+  `ld: framework 'AGL' not found`. 6.11 dropped it.
+- **clang-tidy / clang-format are unpinned** (CI does `brew install llvm` / `clang-format`, i.e.
+  latest). A new LLVM major can add checks and break `tidy.sh --strict` with no code change —
+  LLVM 23 added `readability-trailing-comma` and `bugprone-signed-bitwise`. Homebrew's `llvm@23`
+  is only an alias of `llvm` until LLVM 24 ships; then CI can pin `llvm@23`.
 - **vcpkg binary cache**: `lukka/run-vcpkg` forces `VCPKG_BINARY_SOURCES=clear;x-gha` and
   relocates the default cache, which defeats caching `~/.cache/vcpkg/archives`. The working
   setup overrides `VCPKG_BINARY_SOURCES` on the Configure step to a `files` provider dir that

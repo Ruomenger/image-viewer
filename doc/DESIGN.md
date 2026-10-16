@@ -25,7 +25,8 @@
 
 ## 2. 技术栈与原则
 
-- **C++20 · Qt 6（Widgets + QGraphicsView）· CMake + vcpkg**；Qt 用预编译，vcpkg 管其余依赖。
+- **C++23 · Qt 6.12（Widgets + QGraphicsView）· CMake + vcpkg**；Qt 用预编译，vcpkg 管其余依赖。
+  - C++23 标准库：本地 AppleClang 21 已验证 `std::expected` / `std::ranges::to` / `std::print` / `std::flat_map` / deducing this 可用，M2.5 的错误通道（打开失败、解码失败）用 `std::expected`；libc++ 尚无 `std::move_only_function`，调度器任务用 `std::function` 或自定义包装。CI 与将来 Windows / Linux 的编译器可能更旧，新特性以 CI 实际编译通过为准。
 - **核心与 GUI 解耦**：可测试逻辑沉到 `viewer-core`，GUI 只做展示与交互。
 - **解码/格式复用成熟 C 库**：不自己写解码器（libarchive / libheif / libavif / libraw…）。
 - **UI 线程不读字节、不解码**：所有读取与解码经同一个调度器在工作线程完成，UI 只发请求、收结果。

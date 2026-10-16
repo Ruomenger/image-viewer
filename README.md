@@ -4,7 +4,7 @@ A cross-platform (macOS / Windows / Linux) open-source image viewer with archive
 browsing — view images directly out of `.zip` / `.cbz` / `.7z` / `.rar` / `.tar`,
 in natural file order. Inspired by [BandiView](https://en.bandisoft.com/bandiview/).
 
-**Stack:** C++20 · Qt 6 (Widgets + QGraphicsView) · CMake + vcpkg.
+**Stack:** C++23 · Qt 6.12 (Widgets + QGraphicsView) · CMake + vcpkg.
 Qt is consumed as a **prebuilt** install; vcpkg (manifest mode) handles the rest.
 
 > Status: M0–M2 done (browsing core, LRU cache + prefetch, HEIC/AVIF/RAW, GIF/WebP

@@ -29,6 +29,7 @@
 - [x] 抽出 `viewer-core` 静态库 + Qt Test 单元测试
 - [x] vcpkg 二进制缓存（Configure 190s → 7s）
 - [x] `CLAUDE.md` / `AGENTS.md` / `doc/` 设计与计划文档
+- [x] 工具链升级：C++23 + Qt 6.12（本地 Homebrew 与 CI 对齐）；修复 LLVM 23 clang-tidy 新增检查的告警
 
 ## M1 · 浏览体验核心 ✅ 已完成
 
@@ -152,6 +153,7 @@
 - [ ] Windows 构建（vcpkg x64-windows，aqt Qt，windeployqt 打包）+ CI windows-latest
 - [ ] Linux 构建（x64-linux，AppImage）+ CI ubuntu-latest
 - [ ] CI 改为三平台矩阵跑 `ctest`
+- [ ] 确认 MSVC / GCC 对项目实际用到的 C++23 特性（`std::expected` 等）的支持
 
 ## M6 · 打磨与发布
 
