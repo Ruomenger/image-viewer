@@ -9,7 +9,7 @@
 
 #include <algorithm>
 
-Browser::Browser(qint64 cacheBytes) : m_cache(cacheBytes), m_prefetcher(m_cache) {}
+Browser::Browser(qint64 cacheBytes) : m_cache(cacheBytes), m_scheduler(m_cache) {}
 
 bool Browser::open(const QString& path, QString* error) {
     const QFileInfo info(path);
@@ -42,8 +42,8 @@ bool Browser::open(const QString& path, QString* error) {
     }
 
     m_source = std::move(source);
-    m_cache.clear();                   // 递增代次:旧来源的在途预读结果一并作废
-    m_prefetcher.setSource(m_source);  // 同时作废旧来源尚未开始的预读任务
+    m_scheduler.setSource(m_source);  // 丢弃旧来源的排队任务、清空缓存
+    m_direction = Direction::Forward;
     goTo(initialIndex);
     return true;
 }
@@ -60,14 +60,15 @@ QImage Browser::currentImage() {
     if (!m_source)
         return {};
 
-    QImage image = m_cache.get(m_index);
-    if (image.isNull()) {
-        image = decodeImage(m_source->readEntry(m_index), m_source->entryName(m_index)).image;
-        if (!image.isNull())
-            m_cache.insert(m_index, image);
+    const ImageKey key{.entry = {.source = m_source->id(), .entry = m_index}, .tier = Tier::Fit};
+    std::optional<DecodedImage> decoded = m_cache.get(key);
+    if (!decoded) {
+        decoded = decodeImage(m_source->readEntry(m_index), m_source->entryName(m_index),
+                              m_scheduler.target(Tier::Fit));
+        m_cache.insert(key, *decoded);  // 解码失败是空图,insert 内部忽略
     }
-    m_prefetcher.prefetchAround(m_index);  // 坏图也预读邻页,便于快速跳过
-    return image;
+    m_scheduler.focus(m_index, m_direction);  // 坏图也预读邻页,便于快速跳过
+    return decoded->image;
 }
 
 QByteArray Browser::currentAnimation() {
@@ -89,4 +90,14 @@ void Browser::goTo(int index) {
     if (n <= 0)
         return;
     m_index = ((index % n) + n) % n;  // wrap around both ends
+}
+
+void Browser::next() {
+    m_direction = Direction::Forward;
+    goTo(m_index + 1);
+}
+
+void Browser::prev() {
+    m_direction = Direction::Backward;
+    goTo(m_index - 1);
 }

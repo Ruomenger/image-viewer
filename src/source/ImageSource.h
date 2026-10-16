@@ -2,12 +2,21 @@
 
 #include <QByteArray>
 #include <QString>
+#include <QtTypes>
 
 // Abstract sequence of images coming from a folder or an archive.
 // The viewer only ever needs: how many, what's each called, and the raw bytes.
 class ImageSource {
 public:
+    ImageSource();
     virtual ~ImageSource() = default;
+
+    ImageSource(const ImageSource&) = delete;
+    ImageSource& operator=(const ImageSource&) = delete;
+
+    // 进程内唯一的来源 id:每个实例一个,同一路径重新打开也是新 id。缓存与调度的
+    // 键(EntryKey)带上它,旧来源迟到的结果不会串到新来源。
+    quint64 id() const { return m_id; }
 
     virtual int count() const = 0;
     virtual QString entryName(int index) const = 0;
@@ -27,4 +36,7 @@ public:
 
 protected:
     QString m_openError;  // 由子类构造函数填写
+
+private:
+    const quint64 m_id;
 };

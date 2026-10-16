@@ -71,7 +71,7 @@
 - [x] 单测：各格式样本解码、解码器选择逻辑
       （HEIC/AVIF：真实 sips 编码样本；RAW：raw.pixls.us 的 CC0 DNG 样本，均在 `test/data/`）
 
-## M2.5 · 管线异步化 ⬅ 下一个
+## M2.5 · 管线异步化 ⬅ 进行中
 
 > 目标：UI 线程永不等待读取 / 解码；当前页、预读、缩略图共用一个调度器；按尺寸档解码；
 > 压缩包按实际格式分读取策略。设计见 DESIGN §3、§4，原因见 [DESIGN §8](./DESIGN.md#8-修订记录)。
@@ -87,21 +87,27 @@
       `dcraw_process`（半尺寸输出仍覆盖目标才开 `half_size`，免得大屏 Fit 档发糊）；HEIF 取覆盖目标的
       最小内嵌缩略图；其余解原图后在工作线程平滑缩放；输出统一 `RGB32` / `ARGB32_Premultiplied`
       （HEIF / AVIF 按有无 alpha 出 RGBA / RGBX）；动画判定随解码完成、字节随结果返回。
-      `Browser` / `Prefetcher` 暂仍按原图请求、只取 `.image`，由下面的调度器 / 缓存 / Browser 任务切换
+      `Browser` 暂仍按原图请求（Fit 目标为空），由下面的 Browser / App 层任务切换
       - 验收 ✅：大 JPEG 按目标解码（含 EXIF 旋转）不超过目标且 `originalSize` 正确；输出格式断言
         （alpha / 不透明各有样本）；RAW 小目标与直接解内嵌预览逐像素一致、预览不够大时走全流程；
         HEIF 小目标解内嵌缩略图；动画条目 `animation` 非空、静态为空。新增样本：`sample.crw`
         （raw.pixls.us CC0，带 1440×960 预览）、`sample-thumb.heic`（heif-enc）、`sample-opaque.avif`（sips）
       - 实测（Debug）：CRW 走预览约 4ms / 张，全流程约 1s；无预览的 DNG 开 `half_size` 后约快 5 倍
-- [ ] **`DecodeScheduler` 取代 `Prefetcher`**（§4.4）：自有优先级队列（P0 当前页 > P1 翻页方向
+- [x] **`DecodeScheduler` 取代 `Prefetcher`**（§4.4）：自有优先级队列（P0 当前页 > P1 翻页方向
       3 页 > P2 反方向 1 页 > P3 缩略图，方向取最近一次翻页）；按 `(EntryKey, 档)` 在途去重
-      （排队中提优先级、执行中挂等待者）；导航后丢弃窗口外的排队任务、换源丢弃旧来源任务；
-      `EntryKey` 带来源 id；线程数 2、栈 8MB 保留；不环绕预读
-      - 验收：用可阻塞、记录读取次数的假来源——P0 请求插到排队的 P1/P2 前面；同一 key 并发请求
-        只读一次；换源后旧来源结果不再送达；RAW 池线程栈回归测试迁移保留
-- [ ] **`ImageCache` 按档分预算**（§4.4）：键 `(EntryKey, 档)`；Fit 预算至少容纳整个预读窗口
-      （默认取 256MB 与「窗口张数 × Fit 目标像素 × 4B」的较大值）；Full 只留当前页；Thumb 独立小预算
-      - 验收：插入 Full 不挤掉 Fit；5K 屏 Fit 目标下默认预算容纳完整预读窗口
+      （排队中提优先级、执行中等其结果）；导航后丢弃窗口外的排队任务、换源丢弃旧来源任务；
+      `EntryKey` = (来源 id, 列表下标)，来源 id 每个 `ImageSource` 实例唯一；线程数 2、栈 8MB 保留；
+      不环绕预读。结果先写缓存、再排队回 UI 线程发 `ready` / `failed`，送达前在 UI 线程按来源 id /
+      Fit 目标版本再校验；执行中的任务按票号登记，换源 / 改 Fit 目标即作废，迟到结果不入缓存。
+      `Prefetcher` 已删除；`Browser` 处于过渡态：当前页未命中仍同步解码，预读走调度器
+      - 验收 ✅（`test/support/FakeSource`：可阻塞、记录读取次数与先后）：P0 插到排队的 P1/P2/P3 前面；
+        同一 key 排队 / 执行中重复请求都只读一次、只送达一次；`focus` 丢弃窗口外的排队任务（执行中的
+        跑完入缓存，P3 不受影响）；换源后旧来源结果不入缓存、不送达；改 Fit 目标后在途 Fit 另起任务；
+        RAW 工作线程栈回归测试迁移保留（去掉 8MB 栈即 SIGBUS，已验证）
+- [x] **`ImageCache` 按档分预算**（§4.4）：键 `(EntryKey, 档)`，值为 `DecodedImage`（动画字节计入占用）；
+      Fit 预算至少容纳整个预读窗口（`setFitTarget` 时取构造预算 256MB 与「窗口张数 × Fit 目标像素 × 4B」
+      的较大值）；Full 只留一张、不设字节上限；Thumb 独立 32MB；代次机制随之删除（正确性靠键里的来源 id）
+      - 验收 ✅：插入 Full 不挤掉 Fit、刷 Thumb 不挤掉 Fit；5K 屏 Fit 目标下预算容纳完整预读窗口（5 张）
 - [ ] **`Browser` 异步化**（§4.6）：`QObject` + 信号（`opened` / `openFailed` / `listingProgress` /
       `pageChanged` / `pageReady` / `pageFailed` / `reachedEnd`）+ `setFitTarget` / `requestFull`；
       `open` 后台建列表、成功前保留原来源；命中时同步发 `pageReady`，未命中排队发回，过期结果丢弃；
@@ -122,8 +128,8 @@
       条目抽取到位；需解压才能列表的格式，列表与抽取同一遍并报进度
       - 验收：libarchive 现场写 7z / tar.gz 测试包，任意访问顺序下每个条目只解压一次、重开次数为 0；
         `open` 在抽取完成前返回；超预算落盘、关闭后临时目录被删；RAR 无法现场生成，补一个真实小样本
-- [ ] **清理与文档**：删除 `Prefetcher`、`ArchiveSource` 游标 + 锁、`currentImage()` /
-      `currentAnimation()`；原有回归点（同名 entry、坏包报错、截断包可浏览）迁移保留；同步
+- [ ] **清理与文档**：删除 `ArchiveSource` 游标 + 锁、`currentImage()` /
+      `currentAnimation()`（`Prefetcher` 已随调度器删除）；原有回归点（同名 entry、坏包报错、截断包可浏览）迁移保留；同步
       `CLAUDE.md` 架构说明与 DESIGN 各节「现状」
 - 验收（里程碑）：viewer-core 在调用线程零读取 / 解码（守卫测试）；连续翻页命中 <50ms；
   打开大 solid 包不冻结界面；流式格式顺序翻 + 回翻每个条目只解压一次

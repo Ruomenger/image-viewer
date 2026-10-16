@@ -8,7 +8,8 @@ in natural file order. Inspired by [BandiView](https://en.bandisoft.com/bandivie
 Qt is consumed as a **prebuilt** install; vcpkg (manifest mode) handles the rest.
 
 > Status: M0–M2 done (browsing core, LRU cache + prefetch, HEIC/AVIF/RAW, GIF/WebP
-> animation). Next: M2.5 async pipeline rework — see [doc/TODO.md](doc/TODO.md).
+> animation). In progress: M2.5 async pipeline rework (size-tiered decoding and the
+> `DecodeScheduler` are in) — see [doc/TODO.md](doc/TODO.md).
 > Currently targets **macOS**; Windows/Linux to follow.
 
 ---
@@ -63,8 +64,9 @@ ctest --test-dir build/default --output-on-failure
 ```
 
 They cover the testable core (`viewer-core`): folder/archive sources, the decoder
-registry, cache and prefetch, and the `Browser` playlist model — using on-the-fly
-generated PNGs and zips (`test/support/TestData`) plus real format samples in
+registry, the tiered cache and decode scheduler, and the `Browser` playlist model — using
+on-the-fly generated PNGs and zips (`test/support/TestData`), a blockable fake source that
+counts reads (`test/support/FakeSource`), plus real format samples in
 `test/data/`. Disable with `-DBUILD_TESTING=OFF`.
 
 ## Usage
@@ -85,7 +87,8 @@ src/
   ImageView.{h,cpp}        QGraphicsView: smooth zoom / pan / fit
   source/                  where bytes come from: ImageSource / FolderSource / ArchiveSource
   decode/                  bytes -> QImage: decoder registry (libavif / libheif / LibRaw) + QImageReader
-  cache/                   ImageCache (byte-budget LRU) + Prefetcher
+  schedule/                DecodeScheduler: one priority queue for every read + decode
+  cache/                   ImageCache: per-tier (Thumb / Fit / Full) LRU
   browse/                  Browser: playlist model (source + current index)
 test/                      Qt Test unit tests for viewer-core
 ```

@@ -63,7 +63,7 @@
 
 `source/` `decode/` `schedule/` `cache/` `browse/` 编译为无 GUI 的 `viewer-core` 静态库，App 与测试共享。
 
-> **现状与目标**：当前代码（M2）仍是同步拉取——`Browser::currentImage()` 在调用线程（UI）读取并解码，`Prefetcher` 另走一条预读路径，`ArchiveSource` 用单游标加锁顺序读。`decodeImage()` 已能按目标尺寸解码（M2.5 第一步），但调用方仍按原图请求。M2.5 落地上图结构。
+> **现状与目标**：M2.5 进行中。已落地：`decodeImage()` 按目标尺寸解码；`DecodeScheduler` + 按档分道的 `ImageCache` 取代了 `Prefetcher`（§4.4）。仍是旧结构：`Browser::currentImage()` 当前页未命中时在调用线程（UI）同步读取并解码，预读才走调度器；Fit 目标尚未由 App 层传入（为空 = 原图）；`ArchiveSource` 用单游标加锁顺序读。M2.5 剩余任务落地上图其余部分。
 
 ## 4. 关键子系统
 
@@ -71,16 +71,16 @@
 - **现状**：`FolderSource`、`ArchiveSource`；`QCollator` 自然排序；按 `decodableExtensions()` 过滤非图片；`openError()` 错误通道区分「打开失败（含原因）」与「打开成功但没图」；构造时在调用线程建列表；Archive 顺序读快路径（持久 reader + entry 序号索引，回退才重开，互斥锁串行化并发读——问题见 §4.5）。
 - **目标（M2.5）**：接口（`count` / `entryName` / `readEntry` / `openError`）保留，契约收紧：
   - `readEntry` **只在调度器工作线程调用**，允许阻塞（流式压缩包要等后台抽取到位），必须支持并发调用。
-  - 每个条目有**稳定 id**（文件夹：绝对路径；压缩包：包内序号）；缓存与在途去重按 `EntryKey = (来源 id, 条目 id)`，不按排序后的下标。
+  - 每个条目有**稳定 id**：缓存与在途去重按 `EntryKey = (来源 id, 条目 id)`。**已落地的取法**：来源 id = `ImageSource::id()`，每个来源实例唯一（同一路径重开也换新 id）；条目 id = 该实例列表中的下标——列表建成后不再变化，下标在实例内即稳定；列表要变（如重扫目录）就换新实例。若以后要在流式包列表完成前先显示第一张（§4.5 可选优化），届时再给条目单独的 id（如包内序号）。
   - 列表在后台建（文件夹 / zip 作为调度器 P0 任务，毫秒级；流式压缩包由来源自己的抽取线程边扫边报进度），`Browser::open` 不在 UI 线程扫描。
   - 压缩包按实际格式分 `ZipArchiveSource` 与 `StreamArchiveSource`，见 §4.5。
 - **演进**：递归子目录；包内子目录；非 UTF-8 包名编码探测（GBK 等，用 `QStringDecoder`/ICU）；加密包密码回调。
 
 ### 4.2 解码与格式
 - **现状**：统一入口 `decodeImage(bytes, nameHint, target)`（`src/decode/`）= **解码器注册表**（magic bytes + 后缀探测选专用解码器：**libavif**+dav1d 解 AVIF、**libheif**+libde265 解 HEIC/HEIF、**LibRaw** 解相机 RAW——RAW 无统一 magic 按后缀判定；ftyp 探测共用 `FtypBox`，AVIF 排在 HEIF 前消歧 mif1 主 brand；均仅解码）+ 兜底 `QImageReader`（内置 PNG/BMP/PPM…；插件 JPEG/GIF/WebP/TIFF via qtimageformats；EXIF 方向 autoTransform）。可解码后缀由 `decodableExtensions()` 单点提供，来源层据此过滤——「能列出的就能解码」由 decode 模块负责。按目标尺寸解码、显示格式输出、动画字节随结果返回均已落地（见下方「目标」，M2.5 第一步）；专用解码器可返回大于目标的图，由 `decodeImage` 统一缩放与转格式。
-- **动画（现状）**：`decodeImage` 已在 Qt 路径顺手判定多帧并返回字节，但 `Browser::currentAnimation()` 仍对多帧条目（后缀预筛 gif/webp/png + `QImageReader` 探测帧数）重读一遍原始字节，`ImageView` 用 `QMovie` 播放；缓存与预读只存首帧。APNG 取决于 Qt png 插件支持（当前按静态首帧）。
-- **问题**（解码层已就绪，剩下的在调用方，随调度器 / 缓存 / Browser 任务解决）：
-  - `Browser` / `Prefetcher` 仍按原图请求。2400 万像素照片解成 `RGB32` 约 96MB，默认 256MB 预算只放得下 2 张，而预读窗口要放 5 张（当前 + 前 3 + 后 1）——后入的预读图把先入的挤掉，翻到下一张反而未命中。
+- **动画（现状）**：`decodeImage` 已在 Qt 路径顺手判定多帧并返回字节，但 `Browser::currentAnimation()` 仍对多帧条目（后缀预筛 gif/webp/png + `QImageReader` 探测帧数）重读一遍原始字节，`ImageView` 用 `QMovie` 播放；缓存存整个 `DecodedImage`（Fit / Full 档含动画字节，Thumb 档只留首帧），待 Browser 异步化后直接取用、不再重读。APNG 取决于 Qt png 插件支持（当前按静态首帧）。
+- **问题**（解码层、调度器与分档缓存已就绪，剩下的在调用方，随 Browser / App 层任务解决）：
+  - Fit 目标还没由 App 层传入，Fit 档实际仍是原图。2400 万像素照片解成 `RGB32` 约 96MB，默认 256MB 预算只放得下 2 张，而预读窗口要放 5 张（当前 + 前 3 + 后 1）——后入的预读图把先入的挤掉，翻到下一张反而未命中。
   - 动画判定要在 UI 线程二次读取字节（压缩包里还会触发重扫，见 §4.5）。
 
 **目标（M2.5）**：解码按**目标尺寸**——`decodeImage(bytes, nameHint, target)`，`target` 为空表示原图。调度 / 缓存层用三个**尺寸档**换算 `target`：
@@ -121,15 +121,15 @@ struct DecodedImage {
 - **演进**：可选 `QOpenGLWidget` viewport 提升大图性能；超大图（gigapixel）分块、按可视区域解码——作为 Full 档的替代挂在同一套请求上；HiDPI / `devicePixelRatio` 适配。
 
 ### 4.4 调度与缓存
-- **现状（M1）**：
-  - 解码结果 **LRU 缓存**（`ImageCache`），按字节预算（默认 256MB，构造可配）；**代次（generation）防竞态**：clear() 递增代次，在途预读任务的写入锁内校验代次，换源后旧图不会污染新缓存。
-  - **前偏异步预读**（`Prefetcher`，`QThreadPool` 2 线程，栈 8MB——LibRaw/dav1d 栈深超过 macOS 次线程默认的 512KB）：向前 3 张、向后 1 张；快速翻页/换源时取消过期任务（epoch + 队列清空）。
-  - 当前页未命中时由 `Browser::currentImage()` 在调用线程（UI）同步读取 + 解码。
+- **现状（M2.5 过渡态）**：下方「目标」中的 `DecodeScheduler`（`src/schedule/`）与按档分道的 `ImageCache` 已落地，`Prefetcher` 已删除。实现要点：
+  - API：`setSource` / `setFitTarget` / `focus(index, direction)`（导航：排 P0–P2 窗口、丢弃窗口外的排队任务）/ `request(index, tier, priority)`（单个请求，如 Full、缩略图）；缓存命中时这两个调用直接返回结果，否则稍后发 `ready` / `failed` 信号。
+  - 执行中的任务按票号登记在 `(EntryKey, 档)` 下；换源、改 Fit 目标即注销，跑完发现票号不在就丢弃结果（不入缓存、不送达），同键的新请求另起任务而不是挂到作废的任务上。
+  - 结果在工作线程写缓存，再排队回调度器所在线程（UI），送达前按来源 id、Fit 目标版本再校验一次——与 `setSource` / `setFitTarget` 在同一线程串行，没有「校验后、送达前换源」的窗口。
+  - 每次完成都发信号（含预读）：用户翻到一张正在预读的页，`Browser` 只需按键匹配，无需单独登记等待者。
+  - 当前页未命中时 `Browser::currentImage()` 仍在调用线程（UI）同步读取 + 解码，与调度器之间没有在途去重——随「Browser 异步化」消除。
 - **问题**：
-  - 当前页与预读是两条独立路径，没有在途去重：预读线程正在解第 i 张时用户翻到 i，UI 线程再解一遍。
-  - 当前页未命中就在 UI 线程同步读 + 解，RAW 动辄百毫秒到秒级，压缩包回退还要重扫。
-  - M3 的胶片条要大量低优先级解码，照现状会长出第三条解码路径。
-  - 预算按原尺寸图计算，大照片下预读窗口装不下（§4.2）。
+  - 当前页未命中仍在 UI 线程同步读 + 解，RAW 动辄百毫秒到秒级，压缩包回退还要重扫；预读线程正在解第 i 张时用户翻到 i，UI 线程会再解一遍。
+  - Fit 目标未接入，大照片下预读窗口仍装不下（§4.2）。
 - **目标（M2.5）**：**`DecodeScheduler`** 取代 `Prefetcher`，成为读取 + 解码的唯一入口。
   - 请求 = `(EntryKey, 档, 优先级)`。
   - 优先级：**P0 当前页**（Fit；需要时 Full）> **P1 翻页方向的邻页**（默认 3 页）> **P2 反方向**（默认 1 页）> **P3 缩略图**。「翻页方向」取最近一次翻页的方向（RTL 只反转键位，不改变方向语义）。
@@ -172,7 +172,7 @@ struct DecodedImage {
 - **演进**：包名编码探测；加密包密码输入；（可选）嵌套包。
 
 ### 4.6 导航与会话
-- **现状**：`Browser`（`src/browse/`）= playlist 模型（来源 + 当前索引），环绕翻页、任意跳转、打开单文件定位到所在文件夹索引；统一编排「查缓存 → 解码 → 触发预读」及 cache/prefetcher 的换源协议。API 是同步的：`open()` 在调用线程建列表，`currentImage()` 未命中时在调用线程解码。
+- **现状**：`Browser`（`src/browse/`）= playlist 模型（来源 + 当前索引），环绕翻页、任意跳转、打开单文件定位到所在文件夹索引；统一编排「查缓存 → 解码 → 触发预读」，预读与换源经 `DecodeScheduler`（按最近一次翻页方向）。API 是同步的：`open()` 在调用线程建列表，`currentImage()` 未命中时在调用线程解码。
 - **目标（M2.5）**：`Browser` 改为 `QObject`，**全部异步**，调用线程上不做任何读取、列表与解码：
 
 ```cpp

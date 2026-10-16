@@ -1,51 +1,60 @@
 #pragma once
 
 #include <QHash>
-#include <QImage>
 #include <QList>
 #include <QMutex>
 
-// 按字节预算的 LRU 解码图片缓存。
-//
-// 键为「当前来源内的索引」(int);切换来源时上层调用 clear()。
-// clear() 同时递增代次(generation):后台任务入队时记下代次,用
-// insertIfGeneration 写入,代次不匹配则丢弃——杜绝「旧来源的图在
-// clear() 之后才落入新缓存」的竞态(检查与写入在同一把锁内)。
-// 线程安全:所有操作内部加锁,可供 UI 线程与预读线程共享。
+#include <array>
+#include <optional>
+
+#include "cache/ImageKey.h"
+#include "decode/ImageDecoder.h"
+
+// 解码结果缓存,按档分道(DESIGN §4.4):每档一条独立的 LRU、独立的上限,
+// 放大看原图、刷胶片条都挤不掉预读窗口里的 Fit 档。
+// - Fit:按字节预算,默认 256MB;调度器按 Fit 目标尺寸把它抬到至少容纳整个预读窗口。
+// - Full:只留一张(当前页),不设字节上限——原图再大也要能放大看。
+// - Thumb:独立的小预算。
+// 换源时 clear() 释放内存;正确性靠键里的来源 id,不靠清空的时序。
+// 线程安全:所有操作内部加锁,可供 UI 线程与调度器工作线程共享。
 class ImageCache {
 public:
-    explicit ImageCache(qint64 maxBytes = 256LL * 1024 * 1024);
+    static constexpr qint64 kDefaultFitBytes = 256LL * 1024 * 1024;
+    static constexpr qint64 kDefaultThumbBytes = 32LL * 1024 * 1024;
 
-    // 命中返回该图片并刷新其 LRU 位置;未命中返回空 QImage。
-    QImage get(int key);
+    explicit ImageCache(qint64 fitBytes = kDefaultFitBytes, qint64 thumbBytes = kDefaultThumbBytes);
 
-    // 插入或更新。单张超过总预算时不缓存(避免清空整个缓存);空图忽略。
-    // 插入后若超预算,按最久未用淘汰。
-    void insert(int key, const QImage& image);
+    // 命中返回结果并刷新其 LRU 位置;未命中返回 nullopt。
+    std::optional<DecodedImage> get(const ImageKey& key);
 
-    // 仅当代次仍等于 generation 时插入(锁内校验),返回是否写入。
-    bool insertIfGeneration(quint64 generation, int key, const QImage& image);
+    // 插入或更新,随后按该档上限淘汰最久未用。空图忽略;单张超过该档字节
+    // 预算时不缓存(否则会把该档其余全部挤掉)。图与动画字节都计入占用。
+    void insert(const ImageKey& key, const DecodedImage& image);
 
-    // 当前代次;每次 clear() 递增。
-    quint64 generation() const;
+    bool contains(const ImageKey& key) const;
+    void clear();           // 清空全部档
+    void clear(Tier tier);  // 只清某档(如 Fit 目标尺寸变化)
 
-    bool contains(int key) const;
-    void clear();
-
-    qint64 maxBytes() const { return m_maxBytes; }
-    qint64 totalBytes() const;
-    int count() const;
+    // 调整某档字节预算,调小时立即淘汰。
+    void setMaxBytes(Tier tier, qint64 maxBytes);
+    qint64 maxBytes(Tier tier) const;
+    qint64 totalBytes(Tier tier) const;
+    int count(Tier tier) const;
 
 private:
-    static qint64 imageBytes(const QImage& image);
-    bool insertLocked(int key, const QImage& image, qint64 bytes);  // 调用方须持锁
-    void touch(int key);                                            // 移到最近使用端;调用方须持锁
-    void evict();  // 超预算时淘汰最久未用;调用方须持锁
+    struct Lane {
+        qint64 maxBytes = 0;
+        int maxCount = 0;  // 0 表示不限张数
+        qint64 totalBytes = 0;
+        QHash<EntryKey, DecodedImage> images;
+        QList<EntryKey> lru;  // 队首 = 最久未用,队尾 = 最近使用
+    };
 
-    const qint64 m_maxBytes;
-    qint64 m_totalBytes = 0;
-    quint64 m_generation = 0;
+    static qint64 imageBytes(const DecodedImage& image);
+    static void evict(Lane& lane);  // 超上限时淘汰最久未用;调用方须持锁
+    Lane& lane(Tier tier) { return m_lanes.at(static_cast<size_t>(tier)); }
+    const Lane& lane(Tier tier) const { return m_lanes.at(static_cast<size_t>(tier)); }
+
     mutable QMutex m_mutex;
-    QHash<int, QImage> m_images;
-    QList<int> m_lru;  // 队首=最久未用,队尾=最近使用
+    std::array<Lane, 3> m_lanes;  // 按 Tier 取值下标
 };

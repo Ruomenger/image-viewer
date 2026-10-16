@@ -2,98 +2,108 @@
 
 #include <QMutexLocker>
 
-ImageCache::ImageCache(qint64 maxBytes) : m_maxBytes(maxBytes > 0 ? maxBytes : 0) {}
+#include <algorithm>
+#include <limits>
 
-qint64 ImageCache::imageBytes(const QImage& image) {
-    return static_cast<qint64>(image.sizeInBytes());
+ImageCache::ImageCache(qint64 fitBytes, qint64 thumbBytes) {
+    lane(Tier::Fit).maxBytes = std::max<qint64>(fitBytes, 0);
+    lane(Tier::Thumb).maxBytes = std::max<qint64>(thumbBytes, 0);
+    Lane& full = lane(Tier::Full);
+    full.maxBytes = std::numeric_limits<qint64>::max();
+    full.maxCount = 1;
 }
 
-QImage ImageCache::get(int key) {
-    QMutexLocker locker(&m_mutex);
-    const auto it = m_images.constFind(key);
-    if (it == m_images.constEnd())
-        return {};
-    touch(key);
+qint64 ImageCache::imageBytes(const DecodedImage& image) {
+    return static_cast<qint64>(image.image.sizeInBytes()) + image.animation.size();
+}
+
+std::optional<DecodedImage> ImageCache::get(const ImageKey& key) {
+    const QMutexLocker locker(&m_mutex);
+    Lane& l = lane(key.tier);
+    const auto it = l.images.constFind(key.entry);
+    if (it == l.images.constEnd())
+        return std::nullopt;
+    l.lru.removeOne(key.entry);
+    l.lru.append(key.entry);
     return it.value();
 }
 
-void ImageCache::insert(int key, const QImage& image) {
-    if (image.isNull())
+void ImageCache::insert(const ImageKey& key, const DecodedImage& image) {
+    if (image.image.isNull())
         return;
     const qint64 bytes = imageBytes(image);
 
-    QMutexLocker locker(&m_mutex);
-    insertLocked(key, image, bytes);
-}
-
-bool ImageCache::insertIfGeneration(quint64 generation, int key, const QImage& image) {
-    if (image.isNull())
-        return false;
-    const qint64 bytes = imageBytes(image);
-
-    QMutexLocker locker(&m_mutex);
-    if (generation != m_generation)
-        return false;  // clear() 之后才完成的过期任务:丢弃
-    return insertLocked(key, image, bytes);
-}
-
-quint64 ImageCache::generation() const {
     const QMutexLocker locker(&m_mutex);
-    return m_generation;
-}
+    Lane& l = lane(key.tier);
+    if (bytes > l.maxBytes)
+        return;
 
-bool ImageCache::insertLocked(int key, const QImage& image, qint64 bytes) {
-    if (bytes > m_maxBytes)  // 单张就超过总预算:不缓存,否则会把其余全挤掉
-        return false;
-
-    const auto existing = m_images.find(key);
-    if (existing != m_images.end()) {
-        m_totalBytes -= imageBytes(existing.value());
-        m_lru.removeOne(key);
+    const auto existing = l.images.constFind(key.entry);
+    if (existing != l.images.constEnd()) {
+        l.totalBytes -= imageBytes(existing.value());
+        l.lru.removeOne(key.entry);
     }
-
-    m_images.insert(key, image);
-    m_lru.append(key);
-    m_totalBytes += bytes;
-    evict();
-    return true;
+    l.images.insert(key.entry, image);
+    l.lru.append(key.entry);
+    l.totalBytes += bytes;
+    evict(l);
 }
 
-bool ImageCache::contains(int key) const {
+bool ImageCache::contains(const ImageKey& key) const {
     const QMutexLocker locker(&m_mutex);
-    return m_images.contains(key);
+    return lane(key.tier).images.contains(key.entry);
 }
 
 void ImageCache::clear() {
     const QMutexLocker locker(&m_mutex);
-    m_images.clear();
-    m_lru.clear();
-    m_totalBytes = 0;
-    ++m_generation;
+    for (Lane& l : m_lanes) {
+        l.images.clear();
+        l.lru.clear();
+        l.totalBytes = 0;
+    }
 }
 
-qint64 ImageCache::totalBytes() const {
+void ImageCache::clear(Tier tier) {
     const QMutexLocker locker(&m_mutex);
-    return m_totalBytes;
+    Lane& l = lane(tier);
+    l.images.clear();
+    l.lru.clear();
+    l.totalBytes = 0;
 }
 
-int ImageCache::count() const {
+void ImageCache::setMaxBytes(Tier tier, qint64 maxBytes) {
     const QMutexLocker locker(&m_mutex);
-    return static_cast<int>(m_images.size());
+    Lane& l = lane(tier);
+    l.maxBytes = std::max<qint64>(maxBytes, 0);
+    evict(l);
 }
 
-void ImageCache::touch(int key) {
-    m_lru.removeOne(key);
-    m_lru.append(key);
+qint64 ImageCache::maxBytes(Tier tier) const {
+    const QMutexLocker locker(&m_mutex);
+    return lane(tier).maxBytes;
 }
 
-void ImageCache::evict() {
-    while (m_totalBytes > m_maxBytes && !m_lru.isEmpty()) {
-        const int oldest = m_lru.takeFirst();
-        const auto it = m_images.find(oldest);
-        if (it != m_images.end()) {
-            m_totalBytes -= imageBytes(it.value());
-            m_images.erase(it);
+qint64 ImageCache::totalBytes(Tier tier) const {
+    const QMutexLocker locker(&m_mutex);
+    return lane(tier).totalBytes;
+}
+
+int ImageCache::count(Tier tier) const {
+    const QMutexLocker locker(&m_mutex);
+    return static_cast<int>(lane(tier).images.size());
+}
+
+void ImageCache::evict(Lane& lane) {
+    const auto over = [&lane] {
+        return lane.totalBytes > lane.maxBytes ||
+               (lane.maxCount > 0 && lane.images.size() > lane.maxCount);
+    };
+    while (over() && !lane.lru.isEmpty()) {
+        const EntryKey oldest = lane.lru.takeFirst();
+        const auto it = lane.images.find(oldest);
+        if (it != lane.images.end()) {
+            lane.totalBytes -= imageBytes(it.value());
+            lane.images.erase(it);
         }
     }
 }
