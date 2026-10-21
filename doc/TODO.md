@@ -158,8 +158,9 @@
         内存 / 落盘两条路读取都对、销毁后临时目录消失，预算 0 时全部落盘；同名条目各读各的；截断 tar.gz
         保留完整的前缀、不算打开失败；垃圾文件 `openError` 非空且列表即刻完成；`Browser` 打开 7z 时
         `listingProgress` 至少一次、最后一次等于条目数，然后才 `opened → pageChanged → pageReady`
-      - [ ] 真实 RAR 小样本：本机没有 rar / WinRAR，libarchive 自带的 100 个 RAR 测试包都不含图片条目；
-        待有工具时补 `test/data/sample.rar`（含 2–3 张小 PNG），在 `test_stream_archive_source` 加用例
+      - [ ] 真实 RAR 小样本：macOS 本机没有 rar / WinRAR，libarchive 自带的 100 个 RAR 测试包都不含图片条目，
+        不要再在 macOS 上找工具；等在 Windows 上用 WinRAR 构造 `test/data/sample.rar`（含 2–3 张小 PNG，
+        建议同时出一个 solid 包）后，在 `test_stream_archive_source` 加用例
 - [x] **清理与文档**：单游标 + 锁的 `ArchiveSource` 类已删除，`ArchiveSource.h` 只剩 `openArchive()` 入口；
       libarchive 调用集中在 `ArchiveReader`；回归点迁移：同名 entry（Zip / Stream 各一）、坏包报错
       （Zip / Stream / 工厂各一）、截断包可浏览（stored zip 截断后中央目录丢失仍能读前缀；tar.gz 截断保留
