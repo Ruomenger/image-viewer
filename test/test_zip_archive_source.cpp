@@ -20,6 +20,7 @@ private slots:
     void concurrentOutOfOrderReads();
     void readsUncompressedTar();
     void reportsOpenErrorForGarbageFile();
+    void truncatedZipStaysBrowsable();
     void randomReadLatencyOnThousandPages();
 };
 
@@ -166,6 +167,35 @@ void TestZipArchiveSource::reportsOpenErrorForGarbageFile() {
     QVERIFY(source.readEntry(0).isEmpty());
 
     QVERIFY(!ZipArchiveSource(dir.filePath("missing.zip")).openError().isEmpty());
+}
+
+void TestZipArchiveSource::truncatedZipStaysBrowsable() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString zip = dir.filePath("cut.cbz");
+    QList<QPair<QString, QByteArray>> entries;
+    quint32 state = 99;
+    for (int i = 0; i < 3; ++i) {
+        QByteArray bytes(10 * 1024, Qt::Uninitialized);
+        for (char& c : bytes) {
+            state = state * 1664525U + 1013904223U;
+            c = static_cast<char>(state >> 24);
+        }
+        entries.append({QStringLiteral("%1.jpg").arg(i), bytes});
+    }
+    testdata::makeArchive(zip, entries, testdata::ArchiveFormat::ZipStored);
+
+    // 截到第二条中间(中央目录随之丢失):第一条仍可读;包可浏览、不算打开失败。
+    QFile file(zip);
+    QVERIFY(file.open(QIODevice::ReadWrite));
+    QVERIFY(file.size() > 15 * 1024);
+    QVERIFY(file.resize(15 * 1024));
+    file.close();
+
+    const ZipArchiveSource source(zip);
+    QVERIFY2(source.openError().isEmpty(), qPrintable(source.openError()));
+    QVERIFY(source.count() >= 1);
+    QCOMPARE(source.readEntry(0), entries.at(0).second);
 }
 
 void TestZipArchiveSource::randomReadLatencyOnThousandPages() {

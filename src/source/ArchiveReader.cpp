@@ -105,24 +105,31 @@ QString archiveEntryPath(struct archive_entry* entry) {
     return {};
 }
 
-QList<ArchiveEntryRef> listArchiveImages(ArchiveReader& reader, QString* error) {
-    QList<ArchiveEntryRef> entries;
-    int ordinal = 0;
-    while (struct archive_entry* entry = reader.nextEntry()) {
-        const QString name = archiveEntryPath(entry);
-        if (archive_entry_filetype(entry) == AE_IFREG && ImageSource::isSupportedImage(name))
-            entries.push_back({.name = name, .ordinal = ordinal});
-        ++ordinal;
-    }
-    if (!reader.atEnd() && entries.isEmpty() && error != nullptr)
-        *error = reader.error();
+bool isArchiveImageEntry(struct archive_entry* entry) {
+    return archive_entry_filetype(entry) == AE_IFREG &&
+           ImageSource::isSupportedImage(archiveEntryPath(entry));
+}
 
+void sortArchiveEntries(QList<ArchiveEntryRef>& entries) {
     QCollator collator;
     collator.setNumericMode(true);
     collator.setCaseSensitivity(Qt::CaseInsensitive);
     std::ranges::sort(entries, [&collator](const ArchiveEntryRef& x, const ArchiveEntryRef& y) {
         return collator.compare(x.name, y.name) < 0;
     });
+}
+
+QList<ArchiveEntryRef> listArchiveImages(ArchiveReader& reader, QString* error) {
+    QList<ArchiveEntryRef> entries;
+    int ordinal = 0;
+    while (struct archive_entry* entry = reader.nextEntry()) {
+        if (isArchiveImageEntry(entry))
+            entries.push_back({.name = archiveEntryPath(entry), .ordinal = ordinal});
+        ++ordinal;
+    }
+    if (!reader.atEnd() && entries.isEmpty() && error != nullptr)
+        *error = reader.error();
+    sortArchiveEntries(entries);
     return entries;
 }
 

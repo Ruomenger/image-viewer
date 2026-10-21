@@ -8,10 +8,10 @@ in natural file order. Inspired by [BandiView](https://en.bandisoft.com/bandivie
 Qt is consumed as a **prebuilt** install; vcpkg (manifest mode) handles the rest.
 
 > Status: M0–M2 done (browsing core, LRU cache + prefetch, HEIC/AVIF/RAW, GIF/WebP
-> animation). In progress: M2.5 async pipeline rework — size-tiered decoding, the
-> `DecodeScheduler`, the async `Browser`, the app switch and format-dispatched zip random
-> access (`ZipArchiveSource`) are in; the streaming archive source (7z / rar / compressed
-> tar) remains. See [doc/TODO.md](doc/TODO.md).
+> animation). M2.5 async pipeline rework done: size-tiered decoding, the `DecodeScheduler`,
+> the async `Browser`, and archives dispatched by their real format — zip / plain tar read
+> randomly, 7z / rar / compressed tar extracted once in the background into a `ByteStore`.
+> Next: M3 (UI). See [doc/TODO.md](doc/TODO.md).
 > Currently targets **macOS**; Windows/Linux to follow.
 
 ---
@@ -89,8 +89,9 @@ src/
   main.cpp                 entry point
   MainWindow.{h,cpp}       menus, navigation, drag&drop, open-path dispatch (viewer-ui)
   ImageView.{h,cpp}        QGraphicsView in original-pixel coordinates: zoom / pan / fit (viewer-ui)
-  source/                  where bytes come from: ImageSource / FolderSource / ZipArchiveSource
-                           (random access) / ArchiveSource (sequential, to be replaced)
+  source/                  where bytes come from: ImageSource / FolderSource /
+                           ZipArchiveSource (stateless random reads) /
+                           StreamArchiveSource (one background pass into a ByteStore)
   decode/                  bytes -> QImage: decoder registry (libavif / libheif / LibRaw) + QImageReader
   schedule/                DecodeScheduler: one priority queue for every read + decode
   cache/                   ImageCache: per-tier (Thumb / Fit / Full) LRU
@@ -101,7 +102,7 @@ test/                      Qt Test unit tests for viewer-core
 `source/` `decode/` `cache/` `browse/` compile into a GUI-free **`viewer-core`** static
 library that both the app and the tests link against. `ImageSource` decouples "where the
 bytes come from" from "how they're shown", so a folder and an archive look identical to
-the viewer. Full design — including the planned M2.5 async pipeline (`DecodeScheduler`,
+the viewer. Full design — including the M2.5 async pipeline (`DecodeScheduler`,
 size-tiered decoding, per-format archive sources) — is in [doc/DESIGN.md](doc/DESIGN.md).
 
 ## Roadmap

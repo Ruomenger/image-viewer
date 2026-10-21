@@ -54,6 +54,7 @@ private slots:
     void opensFolderAndStopsAtEnds();
     void openingFileStartsAtItsIndex();
     void opensArchive();
+    void opensStreamingArchiveWithProgress();
     void reportsOpenFailure();
     void failedOpenKeepsCurrentSource();
     void laterOpenWins();
@@ -127,6 +128,31 @@ void TestBrowser::opensArchive() {
     browser.open(zip);
     QTRY_COMPARE(ready.count(), 1);
     QCOMPARE(browser.count(), 2);
+    QCOMPARE(readyImage(ready, 0).image.size(), QSize(6, 4));
+}
+
+void TestBrowser::opensStreamingArchiveWithProgress() {
+    // 7z 只能顺序解压:列表与抽取在来源自己的线程一遍完成,期间 listingProgress 报进度,
+    // 完成后才 opened。open 本身立即返回。
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString sevenZip = dir.filePath(QStringLiteral("a.7z"));
+    QList<QPair<QString, QByteArray>> entries;
+    for (int i = 0; i < 3; ++i)
+        entries.append({QStringLiteral("p%1.png").arg(i), testdata::makePng(6, 4)});
+    testdata::makeArchive(sevenZip, entries, testdata::ArchiveFormat::SevenZip);
+
+    Recorder rec;
+    Browser browser;
+    rec.attach(browser);
+    QSignalSpy progress(&browser, &Browser::listingProgress);
+    QSignalSpy ready(&browser, &Browser::pageReady);
+    browser.open(sevenZip);
+    QVERIFY(rec.events.isEmpty());
+    QTRY_COMPARE(rec.events, QStringList({"opened 3", "pageChanged 0", "pageReady 0"}));
+    QVERIFY(progress.count() >= 1);  // 至少报一次(最终计数)
+    QCOMPARE(progress.last().at(0).toInt(), 3);
+    QCOMPARE(browser.entryName(2), QStringLiteral("p2.png"));
     QCOMPARE(readyImage(ready, 0).image.size(), QSize(6, 4));
 }
 

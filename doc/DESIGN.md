@@ -63,16 +63,16 @@
 
 `source/` `decode/` `schedule/` `cache/` `browse/` 编译为无 GUI 的 `viewer-core` 静态库，App 与测试共享。
 
-> **现状与目标**：M2.5 进行中。已落地：`decodeImage()` 按目标尺寸解码；`DecodeScheduler` + 按档分道的 `ImageCache` 取代了 `Prefetcher`（§4.4）；`Browser` 全异步（§4.6），viewer-core 在调用线程上不再读取或解码。App 层已切到异步接口（§4.3）：场景坐标 = 原图像素、按屏幕物理像素定 Fit 目标、放大时换 Full。压缩包已按实际格式分派（§4.5）：zip / 未压缩 tar 走 `ZipArchiveSource` 无状态随机读；7z / rar / 压缩 tar 仍是旧的单游标 `ArchiveSource`，待 `StreamArchiveSource` 替换。M2.5 剩余任务落地上图其余部分。
+> **现状与目标**：M2.5 进行中。已落地：`decodeImage()` 按目标尺寸解码；`DecodeScheduler` + 按档分道的 `ImageCache` 取代了 `Prefetcher`（§4.4）；`Browser` 全异步（§4.6），viewer-core 在调用线程上不再读取或解码。App 层已切到异步接口（§4.3）：场景坐标 = 原图像素、按屏幕物理像素定 Fit 目标、放大时换 Full。压缩包按实际格式分派（§4.5）：zip / 未压缩 tar 走 `ZipArchiveSource` 无状态随机读；7z / rar / 压缩 tar 走 `StreamArchiveSource` 后台抽取一遍 + `ByteStore`，列表随抽取完成、`Browser` 等待期间报进度。M2.5 的代码任务已全部落地，上图即现状；余下真实 RAR 样本与真机手测。
 
 ## 4. 关键子系统
 
 ### 4.1 来源 ImageSource
-- **现状**：`FolderSource`、`ArchiveSource`；`QCollator` 自然排序；按 `decodableExtensions()` 过滤非图片；`openError()` 错误通道区分「打开失败（含原因）」与「打开成功但没图」；构造时在调用线程建列表；Archive 顺序读快路径（持久 reader + entry 序号索引，回退才重开，互斥锁串行化并发读——问题见 §4.5）。
+- **现状**：`FolderSource`、`ZipArchiveSource`、`StreamArchiveSource`（后两者由 `openArchive()` 按实际格式选，§4.5）；`QCollator` 自然排序；按 `decodableExtensions()` 过滤非图片；`openError()` 错误通道区分「打开失败（含原因）」与「打开成功但没图」。列表在 `Browser` 的后台线程建；流式压缩包的列表随抽取完成，`ImageSource::waitForListing(progress)` 等它并报进度（现成列表的来源直接返回）。下方「目标」已全部落地。
 - **目标（M2.5）**：接口（`count` / `entryName` / `readEntry` / `openError`）保留，契约收紧：
   - `readEntry` **只在调度器工作线程调用**，允许阻塞（流式压缩包要等后台抽取到位），必须支持并发调用。
   - 每个条目有**稳定 id**：缓存与在途去重按 `EntryKey = (来源 id, 条目 id)`。**已落地的取法**：来源 id = `ImageSource::id()`，每个来源实例唯一（同一路径重开也换新 id）；条目 id = 该实例列表中的下标——列表建成后不再变化，下标在实例内即稳定；列表要变（如重扫目录）就换新实例。若以后要在流式包列表完成前先显示第一张（§4.5 可选优化），届时再给条目单独的 id（如包内序号）。
-  - 列表在后台建，`Browser::open` 不在 UI 线程扫描（已落地：来源在 `Browser` 自有的单线程里构造——不排进调度器，因为调度器不可抢占，P0 也要等执行中的任务跑完，RAW 全流程约 1s）；流式压缩包由来源自己的抽取线程边扫边报进度。
+  - 列表在后台建，`Browser::open` 不在 UI 线程扫描（已落地：来源在 `Browser` 自有的单线程里构造——不排进调度器，因为调度器不可抢占，P0 也要等执行中的任务跑完，RAW 全流程约 1s）；流式压缩包由来源自己的抽取线程边扫边报进度（已落地：`waitForListing()` 在 `Browser` 的后台线程里等列表完成，进度去重后转发为 `listingProgress`；本次 `open` 被取代时放弃等待，来源销毁即取消抽取）。
   - 压缩包按实际格式分 `ZipArchiveSource` 与 `StreamArchiveSource`，见 §4.5。
 - **演进**：递归子目录；包内子目录；非 UTF-8 包名编码探测（GBK 等，用 `QStringDecoder`/ICU）；加密包密码回调。
 
@@ -148,8 +148,8 @@ struct DecodedImage {
 - **演进**：按系统可用内存自适应预算（M4）。
 
 ### 4.5 压缩包
-- **现状**：`openArchive()` 用 libarchive 读第一个 header 后按 `archive_filter_code()` / `archive_format()` 分派，不信后缀。无压缩过滤器且格式为 zip / tar → `ZipArchiveSource`：列表从中央目录 / 条目头一次扫出；每次 `readEntry` 独立打开、按包内序号前进到目标再读——seekable zip 读取器的 `read_data_skip` 是空操作、条目按本地头偏移排序（重开后序号稳定），未压缩 tar 的跳过走 lseek——无共享游标、无锁，天然可并发；千页 stored cbz 实测单次随机读最大 5.4ms（Debug）。其余格式（7z / rar / 压缩 tar）仍走旧的 `ArchiveSource`：构造时全量扫包建列表（在 `Browser` 的后台线程），读取走单个持久 reader（游标）+ 互斥锁，目标在游标之后就接着扫，回退才重开。libarchive 句柄封装为 `ArchiveReader`（RAII，出错即作废句柄），列表逻辑两类来源共用。
-- **问题**（zip / 未压缩 tar 已解决，7z / rar / 压缩 tar 仍存在）：「单游标 + 一把锁」只在访问单调向前时成立，而实际访问经常回退：
+- **现状**：下方「目标」已落地。`openArchive()` 用 libarchive 读第一个 header 后按 `archive_filter_code()` / `archive_format()` 分派，不信后缀。无压缩过滤器且格式为 zip / tar → `ZipArchiveSource`：列表从中央目录 / 条目头一次扫出；每次 `readEntry` 独立打开、按包内序号前进到目标再读——seekable zip 读取器的 `read_data_skip` 是空操作、条目按本地头偏移排序（重开后序号稳定），未压缩 tar 的跳过走 lseek——无共享游标、无锁，天然可并发；千页 stored cbz 实测单次随机读最大 5.4ms（Debug）。其余格式 → `StreamArchiveSource`：构造时打开文件、启动抽取线程即返回，线程按包内顺序走一遍把图片条目的编码字节存入 `ByteStore`（预算内在内存，超出逐条写入 `QTemporaryDir`、来源销毁即删），不重开、每个条目只解压一次；列表与抽取同一遍，走完才排序、才算完成，`waitForListing()` 等它并报进度，`readEntry` 等列表完成后从 `ByteStore` 取；析构取消抽取（按条目检查）。打不开的文件也走 Stream，列表即刻完成、`openError` 照报。libarchive 句柄封装为 `ArchiveReader`（RAII，出错即作废句柄；读 header 的 `ARCHIVE_WARN` 视为成功）。截断包：stored zip 丢了中央目录仍能按本地头读前缀；tar.gz 的 gzip 过滤器按 64KB 输出块解压，截断所在的块整块作废，之前的条目保留。
+- **已解决的问题**（M1 的单游标设计，留作回溯）：「单游标 + 一把锁」只在访问单调向前时成立，而实际访问经常回退：
   - 两个预读线程同时抢 i+1、i+2，i+2 先拿到锁则 i+1 变成回退 → 重开；
   - 动画条目 `currentAnimation()` 二次读取同一 entry，游标已越过 → 每个包内 GIF 都从头重扫；
   - 打开时第 0 页的「向后 1 张」环绕到最后一张，一打开就扫到包尾；
@@ -174,7 +174,7 @@ struct DecodedImage {
 - **现状**：下方「目标」的异步 `Browser` 已落地（`src/browse/`），单页布局，末页「停住 + `reachedEnd`」。与目标的细节差异与补充：
   - 另有 `openSource(source, entry)` 打开已建好的来源（测试注入假来源；M3 进入相邻来源也走它），结果信号在调用返回前同步发出。连续 `open` 时只有最后一次生效。
   - 同一页的 `pageReady` 可能再次发出，且只在更清晰时发：`requestFull()` 换成原图，或 `setFitTarget()` 调大后按新尺寸重解（调小不重发，已有的更清晰）。原图不大于 Fit 目标、或动画条目时 `requestFull()` 不做任何事。
-  - `listingProgress` 已声明，`StreamArchiveSource` 落地后才会发出。
+  - `listingProgress(scanned)`：等流式压缩包列表期间发出（已扫条目数，去重），`opened` 之前结束；现成列表的来源不发。
 - **目标（M2.5）**：`Browser` 改为 `QObject`，**全部异步**，调用线程上不做任何读取、列表与解码：
 
 ```cpp
@@ -236,7 +236,7 @@ signals:
   - 调度器用**可控的假来源**（可阻塞、记录读取次数与所在线程）测：优先级插队、同 key 只读一次、换源后无迟到结果。
   - **UI 线程守卫**：测试来源在主线程被 `readEntry` 时直接失败，保证 Browser 不在调用线程做 I/O。
   - Browser 用 `QSignalSpy` 断言 `pageChanged` → `pageReady` 的顺序与内容。
-  - 压缩包：libarchive 现场写 zip / 7z / tar.gz（RAR 写不了，需真实小样本）；来源暴露抽取 / 重开计数，断言任意访问顺序下流式格式每个条目只解压一次、zip 并发乱序读结果正确。
+  - 压缩包：libarchive 现场写 zip（deflate / stored）/ tar / tar.gz / 7z（RAR 写不了，需真实小样本）；流式格式在列表完成后删掉包文件再读全部条目，证明只抽一遍、不重开；zip 多线程并发乱序读结果正确；千页 stored cbz 随机读计时。
 - **集成**：`offscreen` 下端到端 open→navigate。
 - **回归**：损坏/边界样本集；CI 三平台跑 `ctest`。
 

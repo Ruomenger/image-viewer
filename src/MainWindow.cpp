@@ -6,6 +6,7 @@
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QImage>
 #include <QKeySequence>
 #include <QMenu>
@@ -105,6 +106,12 @@ void MainWindow::connectBrowser() {
     connect(&m_browser, &Browser::opened, this, [this] { m_shownPage = {}; });  // 页号换了来源
     connect(&m_browser, &Browser::openFailed, this, [this](const QString& reason) {
         statusBar()->showMessage(tr("无法打开 %1:%2").arg(m_openingPath, reason), 4000);
+    });
+    // 流式压缩包(7z / rar / 压缩 tar)要先在后台解压一遍才有列表:期间报进度,不冻结。
+    connect(&m_browser, &Browser::listingProgress, this, [this](int scanned) {
+        statusBar()->showMessage(tr("正在读取 %1 … 已扫描 %2 个条目")
+                                     .arg(QFileInfo(m_openingPath).fileName())
+                                     .arg(scanned));
     });
     // 换页先更新标题与序号;图到之前保留上一页画面,不清屏、不阻塞。
     connect(&m_browser, &Browser::pageChanged, this, [this](Page page) {

@@ -30,15 +30,39 @@ Browser::Browser(qint64 cacheBytes, QObject* parent)
     connect(&m_scheduler, &DecodeScheduler::failed, this, &Browser::onFailed);
 }
 
-Browser::~Browser() = default;  // m_opener 最先析构,等后台建列表结束
+Browser::~Browser() {
+    ++m_openTicket;  // 让在途的 open 放弃等列表;m_opener 随后最先析构,等它退出
+}
 
 void Browser::open(const QString& path) {
     const quint64 ticket = ++m_openTicket;
     m_opener.clear();  // 尚未开始的旧 open 直接作废
     m_opener.start([this, path, ticket] {
-        const OpenResult result = buildSource(path);
+        OpenResult result = buildSource(path);
+        if (result.source && !awaitListing(*result.source, ticket))
+            return;  // 已被之后的 open 取代:来源随 result 销毁,后台抽取一并取消
+        if (result.source && result.error.isEmpty())
+            result.error = validate(*result.source);
         QMetaObject::invokeMethod(
             this, [this, ticket, result] { finishOpen(ticket, result); }, Qt::QueuedConnection);
+    });
+}
+
+bool Browser::awaitListing(ImageSource& source, quint64 ticket) {
+    return source.waitForListing([this, ticket, last = -1](int scanned) mutable {
+        if (ticket != m_openTicket.load())
+            return false;
+        if (scanned == last)
+            return true;  // 定期唤醒但没有新进度
+        last = scanned;
+        QMetaObject::invokeMethod(
+            this,
+            [this, ticket, scanned] {
+                if (ticket == m_openTicket.load())
+                    emit listingProgress(scanned);
+            },
+            Qt::QueuedConnection);
+        return true;
     });
 }
 
@@ -65,9 +89,7 @@ Browser::OpenResult Browser::buildSource(const QString& path) {
         result.source = folder;
     } else {
         result.error = QStringLiteral("路径不存在");
-        return result;
     }
-    result.error = validate(*result.source);
     return result;
 }
 
@@ -80,7 +102,7 @@ QString Browser::validate(const ImageSource& source) {
 }
 
 void Browser::finishOpen(quint64 ticket, const OpenResult& result) {
-    if (ticket != m_openTicket)
+    if (ticket != m_openTicket.load())
         return;  // 已被之后的 open 取代
     if (!result.error.isEmpty()) {
         emit openFailed(result.error);

@@ -54,6 +54,12 @@ struct ArchiveEntryRef {
     int ordinal = 0;
 };
 
+// 条目是普通文件且后缀是可解码的图片。
+bool isArchiveImageEntry(struct archive_entry* entry);
+
+// 按名字自然排序(数字按数值比较、不分大小写)。
+void sortArchiveEntries(QList<ArchiveEntryRef>& entries);
+
 // 用刚打开的 reader 从头扫到尾,收集可解码的图片条目并按名字自然排序。一个 entry 都没
 // 读到就中断(如非压缩包)时把报错写入 *error;已读到部分条目的截断包保持可浏览。
 QList<ArchiveEntryRef> listArchiveImages(ArchiveReader& reader, QString* error);

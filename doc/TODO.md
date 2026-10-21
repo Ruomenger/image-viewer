@@ -71,7 +71,7 @@
 - [x] 单测：各格式样本解码、解码器选择逻辑
       （HEIC/AVIF：真实 sips 编码样本；RAW：raw.pixls.us 的 CC0 DNG 样本，均在 `test/data/`）
 
-## M2.5 · 管线异步化 ⬅ 进行中
+## M2.5 · 管线异步化 ✅ 代码完成（余下：真实 RAR 样本、真机手测）
 
 > 目标：UI 线程永不等待读取 / 解码；当前页、预读、缩略图共用一个调度器；按尺寸档解码；
 > 压缩包按实际格式分读取策略。设计见 DESIGN §3、§4，原因见 [DESIGN §8](./DESIGN.md#8-修订记录)。
@@ -145,18 +145,30 @@
         可随机读；7z / tar.gz 由旧类读取（含回退重开）正确。**千页 cbz 实测**（1000 × 20KB stored，Debug，
         Apple Silicon）：建列表 7.3ms，随机读（含最后一页，要前进过 999 个条目头）最大 5.4ms、平均 3.9ms，
         在 10ms 阈值内，不换 libzip；测试留 200ms 宽松上限只拦数量级退化
-- [ ] **压缩包 · `StreamArchiveSource` + `ByteStore`**（§4.5）：7z / rar / 压缩 tar 后台顺序抽取一遍，
-      编码字节进 `ByteStore`（内存 512MB 内常驻，超出落会话临时目录、关闭即删）；`readEntry` 等目标
-      条目抽取到位；需解压才能列表的格式，列表与抽取同一遍并报进度
-      - 验收：libarchive 现场写 7z / tar.gz 测试包，任意访问顺序下每个条目只解压一次、重开次数为 0；
-        `open` 在抽取完成前返回；超预算落盘、关闭后临时目录被删；RAR 无法现场生成，补一个真实小样本
-- [ ] **清理与文档**：删除 `ArchiveSource` 游标 + 锁（`Prefetcher`、`currentImage()` /
-      `currentAnimation()` 已在前面的任务中删除）；原有回归点（同名 entry、坏包报错、截断包可浏览）迁移保留；同步
-      `CLAUDE.md` 架构说明与 DESIGN 各节「现状」
-- 验收（里程碑）：viewer-core 在调用线程零读取 / 解码（守卫测试）；连续翻页命中 <50ms；
-  打开大 solid 包不冻结界面；流式格式顺序翻 + 回翻每个条目只解压一次
+- [x] **压缩包 · `StreamArchiveSource` + `ByteStore`**（§4.5）：构造时打开文件、启动抽取线程即返回；线程按
+      包内顺序走一遍，图片条目的编码字节进 `ByteStore`（内存预算默认 512MB，超出的条目逐个写入
+      `QTemporaryDir`，来源销毁即删）；全程不重开、每个条目只解压一次。这些格式拿到列表本就要解压到底，
+      所以列表与抽取是同一遍、走完才排序——新增 `ImageSource::waitForListing(progress)`：`Browser` 的后台
+      线程在其中等列表完成，进度去重后转发为 `listingProgress`（状态栏显示「已扫描 N 个条目」）；本次
+      `open` 被后来的 `open` 取代（或 `Browser` 析构）时 progress 返回 false 放弃等待，来源销毁即取消抽取
+      （按条目检查，最多多解一条）。`readEntry` 等列表完成后从 `ByteStore` 取。`openArchive()` 现在只在
+      Zip / Stream 之间分派，打不开的文件也走 Stream（列表即刻完成，`openError` 照报）
+      - 验收 ✅：7z / tar.gz 任意顺序读全部正确，**删掉包文件后仍能读到每一条**（证明只抽一遍、不重开）；
+        进度只增不减、最后一次是最终计数；放弃等待立即返回且销毁不等整包抽完；预算只够两条时其余三条落盘、
+        内存 / 落盘两条路读取都对、销毁后临时目录消失，预算 0 时全部落盘；同名条目各读各的；截断 tar.gz
+        保留完整的前缀、不算打开失败；垃圾文件 `openError` 非空且列表即刻完成；`Browser` 打开 7z 时
+        `listingProgress` 至少一次、最后一次等于条目数，然后才 `opened → pageChanged → pageReady`
+      - [ ] 真实 RAR 小样本：本机没有 rar / WinRAR，libarchive 自带的 100 个 RAR 测试包都不含图片条目；
+        待有工具时补 `test/data/sample.rar`（含 2–3 张小 PNG），在 `test_stream_archive_source` 加用例
+- [x] **清理与文档**：单游标 + 锁的 `ArchiveSource` 类已删除，`ArchiveSource.h` 只剩 `openArchive()` 入口；
+      libarchive 调用集中在 `ArchiveReader`；回归点迁移：同名 entry（Zip / Stream 各一）、坏包报错
+      （Zip / Stream / 工厂各一）、截断包可浏览（stored zip 截断后中央目录丢失仍能读前缀；tar.gz 截断保留
+      完整前缀——gzip 过滤器按 64KB 输出块解压，截断所在的块整块作废）；`CLAUDE.md` / DESIGN「现状」已同步
+- 验收（里程碑）：viewer-core 在调用线程零读取 / 解码（守卫测试）✅；打开大 solid 包不冻结界面 ✅（后台抽取
+  + 进度）；流式格式顺序翻 + 回翻每个条目只解压一次 ✅；连续翻页命中 <50ms（`test_main_window` 的
+  `next()` 实测 0ms，缓存命中路径）✅
 
-## M3 · UI / 交互
+## M3 · UI / 交互 ⬅ 下一个
 
 > 依赖 M2.5：以下功能都建在异步 `Browser` + 调度器上（DESIGN §4.6、§4.7）。
 

@@ -6,6 +6,7 @@
 #include <QString>
 #include <QThreadPool>
 
+#include <atomic>
 #include <memory>
 #include <optional>
 
@@ -26,7 +27,8 @@ struct Page {
 // 浏览会话(DESIGN §4.6):来源 + 当前页。全部异步——调用线程上不做任何读取、列表与解码。
 //
 // - open():在后台线程建列表;成功才替换来源(发 opened,紧接着 pageChanged),失败发
-//   openFailed 且原来源不变。连续 open 时只有最后一次生效。
+//   openFailed 且原来源不变。连续 open 时只有最后一次生效。流式压缩包的列表随后台抽取
+//   完成,等待期间发 listingProgress(已扫条目数)。
 // - 导航:pageChanged 立即发出(序号 / 文件名先更新);页内条目全部就绪时发 pageReady——
 //   缓存命中时在 goTo / next / prev 返回前同步发出,否则由调度器解完后排队发回;
 //   已翻走的页的结果不再发出。解码失败发 pageFailed。
@@ -45,7 +47,7 @@ public:
     // 打开图片文件 / 文件夹 / 压缩包;单个图片文件定位到它在所在文件夹中的位置。
     void open(const QString& path);
     // 打开已建好的来源并定位到 entry(测试注入假来源;M3 的相邻来源导航也走这里)。
-    // 结果信号在调用返回前同步发出。
+    // 来源的列表须已就绪;结果信号在调用返回前同步发出。
     void openSource(std::shared_ptr<ImageSource> source, int entry = 0);
 
     bool hasSource() const { return m_source != nullptr; }
@@ -67,7 +69,7 @@ public:
 signals:
     void opened(int entryCount);
     void openFailed(const QString& reason);
-    void listingProgress(int scanned);  // 流式压缩包的后台列表进度(StreamArchiveSource 落地后发出)
+    void listingProgress(int scanned);  // 流式压缩包的后台列表进度:已扫过的条目数
     void pageChanged(Page page);
     void pageReady(Page page, const QList<DecodedImage>& images);
     void pageFailed(Page page, const QString& reason);
@@ -79,8 +81,10 @@ private:
         int entry = 0;
         QString error;
     };
-    static OpenResult buildSource(const QString& path);  // 任意线程:建来源并校验
+    static OpenResult buildSource(const QString& path);  // 任意线程:建来源(尚未校验)
     static QString validate(const ImageSource& source);  // 打开失败 / 没图的原因,成功为空
+    // 后台线程:等来源的列表完成,进度转发为 listingProgress;本次 open 已被取代则放弃并返回 false。
+    bool awaitListing(ImageSource& source, quint64 ticket);
 
     void finishOpen(quint64 ticket, const OpenResult& result);
     void install(std::shared_ptr<ImageSource> source, int entry);
@@ -102,7 +106,7 @@ private:
     Direction m_direction = Direction::Forward;
     QList<std::optional<DecodedImage>> m_images;  // 当前页各条目已收到的结果
     bool m_wantFull = false;                      // 当前页已请求原图
-    quint64 m_openTicket = 0;                     // 每次 open 递增;迟到的旧结果丢弃
+    std::atomic<quint64> m_openTicket{0};         // 每次 open 递增;迟到的旧结果丢弃(后台线程也读)
 
     QThreadPool m_opener;  // 后台建列表(单线程);声明在最后,析构最先
 };

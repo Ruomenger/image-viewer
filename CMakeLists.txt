@@ -24,6 +24,8 @@ add_library(viewer-core STATIC
     src/source/ArchiveReader.cpp
     src/source/ArchiveSource.cpp
     src/source/ZipArchiveSource.cpp
+    src/source/ByteStore.cpp
+    src/source/StreamArchiveSource.cpp
     src/decode/ImageDecoder.cpp
     src/decode/FtypBox.cpp
     src/decode/HeifDecoder.cpp

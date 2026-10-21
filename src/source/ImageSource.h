@@ -4,6 +4,8 @@
 #include <QString>
 #include <QtTypes>
 
+#include <functional>
+
 // Abstract sequence of images coming from a folder or an archive.
 // The viewer only ever needs: how many, what's each called, and the raw bytes.
 class ImageSource {
@@ -21,6 +23,12 @@ public:
     virtual int count() const = 0;
     virtual QString entryName(int index) const = 0;
     virtual QByteArray readEntry(int index) const = 0;
+
+    // 列表还在后台建的来源(流式压缩包)在这里等到列表完成:期间定期调用 progress(已扫条目数),
+    // 它返回 false 则放弃等待并返回 false(来源随后可直接丢弃)。列表现成的来源直接返回 true、
+    // 不调用 progress。count() / entryName() / readEntry() 只在返回 true 之后有意义。
+    // 在后台线程调用,可能阻塞。
+    virtual bool waitForListing(const std::function<bool(int)>& progress);
 
     // 打开阶段的失败原因;为空表示打开成功。借此区分「打开失败」
     // (openError 非空)与「打开成功但没有图片」(openError 为空且
