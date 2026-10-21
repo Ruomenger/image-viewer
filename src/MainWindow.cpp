@@ -28,6 +28,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), m_view(new ImageV
     // 视图放大到 Fit 档像素被拉伸时,当前页换成原图。
     connect(m_view, &ImageView::needsSharperImage, &m_browser, &Browser::requestFull);
     connect(m_view, &ImageView::zoomChanged, this, &MainWindow::updateStatus);
+    connect(m_view, &ImageView::doubleClicked, this, &MainWindow::toggleFullScreen);
     updateFitTarget();  // 显示前先按初始屏幕定好,命令行打开的首图就按 Fit 档解
     statusBar()->showMessage(tr("打开图片、文件夹或压缩包以开始"));
 }
@@ -44,6 +45,29 @@ void MainWindow::showEvent(QShowEvent* event) {
 void MainWindow::updateFitTarget() {
     if (const QScreen* s = screen())
         m_browser.setFitTarget(s->size() * s->devicePixelRatio());
+}
+
+void MainWindow::toggleFullScreen() {
+    // 按位翻转而不是 showFullScreen() / showNormal():后者会丢掉进入全屏前的最大化状态。
+    setWindowState(windowState() ^ Qt::WindowFullScreen);
+}
+
+void MainWindow::changeEvent(QEvent* event) {
+    QMainWindow::changeEvent(event);
+    // 也覆盖 macOS 绿灯按钮等不经过本窗口动作的进出全屏。
+    if (event->type() == QEvent::WindowStateChange)
+        updateFullScreenChrome();
+}
+
+void MainWindow::updateFullScreenChrome() {
+    const bool fullScreen = isFullScreen();
+    m_fullScreenAction->setChecked(fullScreen);
+    m_exitFullScreenAction->setEnabled(fullScreen);
+    // macOS 的全局菜单栏不在窗口里,全屏时由系统自动隐藏。
+    if (!menuBar()->isNativeMenuBar())
+        menuBar()->setVisible(!fullScreen);
+    statusBar()->setVisible(!fullScreen);
+    m_view->setFullScreenMode(fullScreen);
 }
 
 void MainWindow::buildMenus() {
@@ -66,6 +90,18 @@ void MainWindow::buildMenus() {
         {QKeySequence::ZoomIn, QKeySequence(Qt::Key_Plus), QKeySequence(Qt::Key_Equal)});
     QAction* zoomOut = viewMenu->addAction(tr("缩小"), this, [this] { m_view->zoomOut(); });
     zoomOut->setShortcuts({QKeySequence::ZoomOut, QKeySequence(Qt::Key_Minus)});
+    viewMenu->addSeparator();
+    m_fullScreenAction =
+        viewMenu->addAction(tr("全屏"), this, &MainWindow::toggleFullScreen);  // 双击画面同效
+    m_fullScreenAction->setCheckable(true);
+    QList<QKeySequence> fullScreenKeys = QKeySequence::keyBindings(QKeySequence::FullScreen);
+    fullScreenKeys << QKeySequence(Qt::Key_Return) << QKeySequence(Qt::Key_Enter);
+    m_fullScreenAction->setShortcuts(fullScreenKeys);
+    m_exitFullScreenAction = new QAction(tr("退出全屏"), this);
+    m_exitFullScreenAction->setShortcut(QKeySequence(Qt::Key_Escape));
+    m_exitFullScreenAction->setEnabled(false);  // 非全屏时不吞 Esc
+    connect(m_exitFullScreenAction, &QAction::triggered, this, &MainWindow::toggleFullScreen);
+    addAction(m_exitFullScreenAction);
 
     QMenu* navMenu = menuBar()->addMenu(tr("浏览(&N)"));
     QAction* prevAction = navMenu->addAction(tr("上一张"), this, &MainWindow::prev);
@@ -80,6 +116,12 @@ void MainWindow::buildMenus() {
         QKeySequence(Qt::Key_PageDown),
         QKeySequence(Qt::Key_Space),
     });
+
+    // 全屏时菜单栏隐藏(macOS 以外),只挂在隐藏菜单里的动作快捷键会失效:动作也挂到窗口上。
+    for (const QAction* menuAction : menuBar()->actions())
+        for (QAction* action : menuAction->menu()->actions())
+            if (!action->isSeparator())
+                addAction(action);
 }
 
 void MainWindow::openFile() {

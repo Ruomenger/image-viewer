@@ -4,6 +4,7 @@
 #include <QFile>
 #include <QGraphicsPixmapItem>
 #include <QGraphicsScene>
+#include <QMenuBar>
 #include <QStatusBar>
 #include <QTemporaryDir>
 
@@ -19,6 +20,8 @@ class TestMainWindow : public QObject {
 private slots:
     void navigatesWithoutBlocking();
     void zoomingInSwapsToFullResolution();
+    void fullScreenHidesChromeAndKeepsShortcuts();
+    void doubleClickTogglesFullScreenKeepingMaximized();
 };
 
 void TestMainWindow::navigatesWithoutBlocking() {
@@ -77,6 +80,58 @@ void TestMainWindow::zoomingInSwapsToFullResolution() {
     QTRY_COMPARE_WITH_TIMEOUT(item->pixmap().size(), QSize(3000, 2000), 10000);
     QCOMPARE(view->zoom(), 1.0);  // 换图不动缩放
     QVERIFY(window.statusBar()->currentMessage().endsWith("100%"));
+}
+
+void TestMainWindow::fullScreenHidesChromeAndKeepsShortcuts() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    for (int i = 0; i < 3; ++i)
+        testdata::writePng(dir.filePath(QStringLiteral("%1.png").arg(i)), 64, 48);
+
+    MainWindow window;
+    window.menuBar()->setNativeMenuBar(false);  // 按 Windows / Linux 的窗口内菜单栏测
+    window.resize(800, 600);
+    window.show();
+    window.activateWindow();
+    QVERIFY(QTest::qWaitForWindowActive(&window));  // 窗口级快捷键只在激活的窗口里生效
+    window.openPath(dir.path());
+    QTRY_VERIFY_WITH_TIMEOUT(window.windowTitle().contains("(1/3)"), 10000);
+    QVERIFY(window.menuBar()->isVisible());
+
+    QTest::keyClick(&window, Qt::Key_Return);
+    QVERIFY(window.isFullScreen());
+    QVERIFY(!window.menuBar()->isVisible());
+    QVERIFY(!window.statusBar()->isVisible());
+
+    QTest::keyClick(&window, Qt::Key_Right);  // 菜单栏藏起来后,菜单里动作的快捷键仍有效
+    QTRY_VERIFY(window.windowTitle().contains("(2/3)"));
+
+    QTest::keyClick(&window, Qt::Key_Escape);
+    QVERIFY(!window.isFullScreen());
+    QVERIFY(window.menuBar()->isVisible());
+    QVERIFY(window.statusBar()->isVisible());
+    QTest::keyClick(&window, Qt::Key_Escape);  // 非全屏时 Esc 不做任何事
+    QVERIFY(!window.isFullScreen());
+}
+
+void TestMainWindow::doubleClickTogglesFullScreenKeepingMaximized() {
+    MainWindow window;
+    window.showMaximized();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    auto* view = window.findChild<ImageView*>();
+    QVERIFY(view != nullptr);
+    // 走 QWindow 的平台事件路径:按下-松开-按下-松开,双击由 Qt 合成。
+    const auto doubleClick = [&] {
+        const QWidget* viewport = view->viewport();
+        QTest::mouseDClick(window.windowHandle(), Qt::LeftButton, {},
+                           viewport->mapTo(&window, viewport->rect().center()));
+    };
+
+    doubleClick();
+    QVERIFY(window.isFullScreen());
+    doubleClick();
+    QVERIFY(!window.isFullScreen());
+    QVERIFY(window.isMaximized());  // 回到进入前的最大化,而不是普通窗口
 }
 
 QTEST_MAIN(TestMainWindow)

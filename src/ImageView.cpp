@@ -3,7 +3,9 @@
 #include <QColor>
 #include <QGraphicsPixmapItem>
 #include <QGraphicsScene>
+#include <QGuiApplication>
 #include <QImage>
+#include <QMouseEvent>
 #include <QMovie>
 #include <QPainter>
 #include <QPixmap>
@@ -18,18 +20,25 @@ constexpr double kMinScale = 0.02;
 constexpr double kMaxScale = 50.0;
 // 浮点误差容限:适应窗口时 Fit 档(屏幕物理像素)恰好 1:1,不应误判为被拉伸。
 constexpr double kStretchTolerance = 1.01;
+constexpr int kCursorHideDelayMs = 1500;
+const QColor kBackground(30, 30, 30);
+const QColor kFullScreenBackground(Qt::black);
 }  // namespace
 
 ImageView::ImageView(QWidget* parent) : QGraphicsView(parent), m_scene(new QGraphicsScene(this)) {
     setScene(m_scene);
     setDragMode(QGraphicsView::ScrollHandDrag);
+    // 跟随光标缩放;QGraphicsView 为此打开视口的鼠标跟踪,全屏时隐藏的光标也靠移动事件恢复。
     setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
     setResizeAnchor(QGraphicsView::AnchorViewCenter);
     setRenderHint(QPainter::SmoothPixmapTransform, true);
     setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    setBackgroundBrush(QColor(30, 30, 30));
+    setBackgroundBrush(kBackground);
     setFrameShape(QFrame::NoFrame);
+    m_cursorTimer.setSingleShot(true);
+    m_cursorTimer.setInterval(kCursorHideDelayMs);
+    connect(&m_cursorTimer, &QTimer::timeout, this, &ImageView::hideCursor);
 }
 
 void ImageView::setImage(const QImage& image, QSize originalSize) {
@@ -174,4 +183,57 @@ void ImageView::resizeEvent(QResizeEvent* event) {
     QGraphicsView::resizeEvent(event);
     if (m_fitMode)
         fitToWindow();
+}
+
+void ImageView::setFullScreenMode(bool on) {
+    if (on == m_fullScreenMode)
+        return;
+    m_fullScreenMode = on;
+    setBackgroundBrush(on ? kFullScreenBackground : kBackground);
+    if (on) {
+        m_cursorTimer.start();
+    } else {
+        m_cursorTimer.stop();
+        revealCursor();
+    }
+}
+
+void ImageView::hideCursor() {
+    if (!m_fullScreenMode || m_cursorHidden)
+        return;
+    if (QGuiApplication::mouseButtons() != Qt::NoButton) {
+        m_cursorTimer.start();  // 按住拖拽中:松手后再计时
+        return;
+    }
+    m_cursorBeforeHide = viewport()->cursor();
+    viewport()->setCursor(Qt::BlankCursor);
+    m_cursorHidden = true;
+}
+
+void ImageView::revealCursor() {
+    if (m_cursorHidden) {
+        viewport()->setCursor(m_cursorBeforeHide);
+        m_cursorHidden = false;
+    }
+    if (m_fullScreenMode)
+        m_cursorTimer.start();
+}
+
+void ImageView::mousePressEvent(QMouseEvent* event) {
+    revealCursor();  // 先恢复,拖拽模式随后换成握拳的手
+    QGraphicsView::mousePressEvent(event);
+}
+
+void ImageView::mouseMoveEvent(QMouseEvent* event) {
+    revealCursor();
+    QGraphicsView::mouseMoveEvent(event);
+}
+
+void ImageView::mouseDoubleClickEvent(QMouseEvent* event) {
+    if (event->button() != Qt::LeftButton) {
+        QGraphicsView::mouseDoubleClickEvent(event);
+        return;
+    }
+    emit doubleClicked();
+    event->accept();
 }

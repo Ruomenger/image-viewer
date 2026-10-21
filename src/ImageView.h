@@ -2,8 +2,10 @@
 
 #include <QBuffer>
 #include <QByteArray>
+#include <QCursor>
 #include <QGraphicsView>
 #include <QSize>
+#include <QTimer>
 
 class QGraphicsScene;
 class QGraphicsPixmapItem;
@@ -18,6 +20,7 @@ class QPixmap;
 // - 放大到显示图的像素被拉伸显示(每个像素占超过 1 个设备像素)时发 needsSharperImage,
 //   每张图最多一次;已是原图时不发。
 // - 动画(GIF/WebP)由 QMovie 驱动帧更新,帧本身就是原图尺寸;换页时自动停止。
+// - 全屏模式:背景纯黑;光标静止一会儿后隐藏,鼠标一动即恢复(按住拖拽时不隐藏)。
 class ImageView : public QGraphicsView {
     Q_OBJECT
 public:
@@ -35,6 +38,9 @@ public:
     bool isAnimating() const { return m_movie != nullptr; }
     double zoom() const { return m_scale; }  // 相对原图的缩放比例
 
+    void setFullScreenMode(bool on);
+    void setCursorHideDelay(int ms) { m_cursorTimer.setInterval(ms); }  // 默认 1.5s,测试可调短
+
 public slots:
     void fitToWindow();
     void actualSize();
@@ -44,10 +50,14 @@ public slots:
 signals:
     void zoomChanged(double zoom);
     void needsSharperImage();
+    void doubleClicked();  // 左键双击(MainWindow 用来切换全屏)
 
 protected:
     void wheelEvent(QWheelEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
+    void mousePressEvent(QMouseEvent* event) override;
+    void mouseMoveEvent(QMouseEvent* event) override;
+    void mouseDoubleClickEvent(QMouseEvent* event) override;
 
 private:
     void resetScene(const QImage& image, QSize originalSize);  // 换页:停动画、按原图铺场景
@@ -56,6 +66,8 @@ private:
     void zoomUpdated();     // 发 zoomChanged 并检查是否需要更清晰的图
     void checkSharpness();  // 显示图像素被拉伸时发 needsSharperImage
     void stopMovie();
+    void hideCursor();
+    void revealCursor();  // 恢复光标;全屏时重新开始计时
 
     QGraphicsScene* m_scene = nullptr;
     QGraphicsPixmapItem* m_item = nullptr;
@@ -65,4 +77,9 @@ private:
 
     QMovie* m_movie = nullptr;  // 仅动画条目存在;换页时销毁
     QBuffer m_movieBuffer;      // QMovie 的数据源,持有字节副本
+
+    bool m_fullScreenMode = false;
+    QTimer m_cursorTimer;  // 全屏时光标静止计时,到点隐藏
+    bool m_cursorHidden = false;
+    QCursor m_cursorBeforeHide;  // 隐藏前的光标(拖拽模式下是张开的手)
 };

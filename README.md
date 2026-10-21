@@ -11,7 +11,7 @@ Qt is consumed as a **prebuilt** install; vcpkg (manifest mode) handles the rest
 > animation). M2.5 async pipeline rework done: size-tiered decoding, the `DecodeScheduler`,
 > the async `Browser`, and archives dispatched by their real format — zip / plain tar read
 > randomly, 7z / rar / compressed tar extracted once in the background into a `ByteStore`.
-> Next: M3 (UI). See [doc/TODO.md](doc/TODO.md).
+> In progress: M3 (UI) — full screen done. See [doc/TODO.md](doc/TODO.md).
 > Currently targets **macOS**; Windows/Linux to follow.
 
 ---
@@ -79,6 +79,8 @@ offscreen platform (open → navigate → zoom to full resolution). Disable with
   or pass a path on the command line.
 - Navigate: `←` / `→` (also `PageUp/Down`, `Space`).
 - Zoom: mouse wheel (around cursor), `+` / `-`. Pan: drag. `F` fit, `1` actual size.
+- Full screen: `Enter` (or the system shortcut — `⌃⌘F` on macOS, `F11` on Windows) or
+  double-click the image; `Esc` leaves. The cursor hides while idle.
 
 ---
 

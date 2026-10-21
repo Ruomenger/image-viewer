@@ -43,7 +43,7 @@ scripts/tidy.sh [--strict]     # clang-tidy，需先配置构建目录；--stric
 - 以上编译成无 GUI 的 `viewer-core` 静态库，app 和测试都链接它；`MainWindow` / `ImageView` 只做展示，编成 `viewer-ui` 静态库（离屏测试 `test_image_view` / `test_main_window` 也链接它）。
 - `ImageView` 的场景坐标 = 原图像素：显示图可能是缩小的 Fit 档，按「原图 / 显示图」放大铺满；视图缩放系数即相对原图的缩放比例。
 
-> **M2.5 代码已完成**（余下真实 RAR 样本、真机手测），下一里程碑是 M3（UI / 交互）。改 `browse/` `cache/` `source/` 之前仍先读 `doc/DESIGN.md` §3、§4、§8。
+> **M2.5 代码已完成**（余下真实 RAR 样本、真机手测），当前里程碑是 M3（UI / 交互），进度见 `doc/TODO.md`。改 `browse/` `cache/` `source/` 之前仍先读 `doc/DESIGN.md` §3、§4、§8。
 
 测试用 Qt Test（`test/`）：PNG 用 `QImage` 现生成，zip 用 libarchive 现写（`test/support/TestData`），各格式真实样本放在 `test/data/`；不要手写字节。
 

@@ -25,6 +25,12 @@ QPointF viewCenterInScene(const ImageView& view) {
     return view.mapToScene(view.viewport()->rect().center());
 }
 
+// 鼠标模拟走 QWindow 重载:经平台事件路径投递(双击由 Qt 从两次按下合成),
+// QWidget 重载则是把单个事件直接塞给控件。
+QPoint inWindow(const QWidget& target, QPoint pos) {
+    return target.mapTo(target.window(), pos);
+}
+
 }  // namespace
 
 class TestImageView : public QObject {
@@ -38,6 +44,8 @@ private slots:
     void originalNeverRequestsSharper();
     void animationFramesFillOriginalRect();
     void clearRemovesPicture();
+    void fullScreenHidesIdleCursor();
+    void leftDoubleClickEmitsSignal();
 
 private:
     ImageView* m_view = nullptr;
@@ -135,6 +143,37 @@ void TestImageView::clearRemovesPicture() {
     const double zoom = m_view->zoom();
     m_view->zoomIn();  // 没有图时缩放不生效、不崩溃
     QCOMPARE(m_view->zoom(), zoom);
+}
+
+void TestImageView::fullScreenHidesIdleCursor() {
+    m_view->setImage(solid(400, 200), QSize(400, 200));
+    QWidget* viewport = m_view->viewport();
+    const Qt::CursorShape normal = viewport->cursor().shape();
+    QCOMPARE(normal, Qt::OpenHandCursor);  // 拖拽平移模式
+    m_view->setCursorHideDelay(20);
+
+    m_view->setFullScreenMode(true);
+    QCOMPARE(m_view->backgroundBrush().color(), QColor(Qt::black));
+    QTRY_COMPARE(viewport->cursor().shape(), Qt::BlankCursor);  // 静止到点即隐藏
+
+    QTest::mouseMove(m_view->windowHandle(), inWindow(*viewport, QPoint(10, 10)));
+    QCOMPARE(viewport->cursor().shape(), normal);               // 一动即恢复
+    QTRY_COMPARE(viewport->cursor().shape(), Qt::BlankCursor);  // 再静止又隐藏
+
+    m_view->setFullScreenMode(false);
+    QCOMPARE(viewport->cursor().shape(), normal);
+    QVERIFY(m_view->backgroundBrush().color() != QColor(Qt::black));
+    QTest::qWait(60);
+    QCOMPARE(viewport->cursor().shape(), normal);  // 退出全屏后不再隐藏
+}
+
+void TestImageView::leftDoubleClickEmitsSignal() {
+    QSignalSpy doubleClicked(m_view, &ImageView::doubleClicked);
+    const QPoint center = inWindow(*m_view->viewport(), m_view->viewport()->rect().center());
+    QTest::mouseDClick(m_view->windowHandle(), Qt::RightButton, {}, center);
+    QCOMPARE(doubleClicked.count(), 0);
+    QTest::mouseDClick(m_view->windowHandle(), Qt::LeftButton, {}, center);
+    QCOMPARE(doubleClicked.count(), 1);
 }
 
 QTEST_MAIN(TestImageView)
