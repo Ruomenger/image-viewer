@@ -63,7 +63,7 @@
 
 `source/` `decode/` `schedule/` `cache/` `browse/` 编译为无 GUI 的 `viewer-core` 静态库，App 与测试共享。
 
-> **现状与目标**：M2.5 进行中。已落地：`decodeImage()` 按目标尺寸解码；`DecodeScheduler` + 按档分道的 `ImageCache` 取代了 `Prefetcher`（§4.4）；`Browser` 全异步（§4.6），viewer-core 在调用线程上不再读取或解码。App 层已切到异步接口（§4.3）：场景坐标 = 原图像素、按屏幕物理像素定 Fit 目标、放大时换 Full。仍是旧结构：`ArchiveSource` 用单游标加锁顺序读。M2.5 剩余任务落地上图其余部分。
+> **现状与目标**：M2.5 进行中。已落地：`decodeImage()` 按目标尺寸解码；`DecodeScheduler` + 按档分道的 `ImageCache` 取代了 `Prefetcher`（§4.4）；`Browser` 全异步（§4.6），viewer-core 在调用线程上不再读取或解码。App 层已切到异步接口（§4.3）：场景坐标 = 原图像素、按屏幕物理像素定 Fit 目标、放大时换 Full。压缩包已按实际格式分派（§4.5）：zip / 未压缩 tar 走 `ZipArchiveSource` 无状态随机读；7z / rar / 压缩 tar 仍是旧的单游标 `ArchiveSource`，待 `StreamArchiveSource` 替换。M2.5 剩余任务落地上图其余部分。
 
 ## 4. 关键子系统
 
@@ -148,8 +148,8 @@ struct DecodedImage {
 - **演进**：按系统可用内存自适应预算（M4）。
 
 ### 4.5 压缩包
-- **现状**：libarchive 读 `zip/7z/rar/tar/cb*`；构造时在调用线程全量扫包建列表；读取走单个持久 reader（游标）+ 互斥锁，目标在游标之后就接着扫，回退才重开。
-- **问题**：「单游标 + 一把锁」只在访问单调向前时成立，而实际访问经常回退：
+- **现状**：`openArchive()` 用 libarchive 读第一个 header 后按 `archive_filter_code()` / `archive_format()` 分派，不信后缀。无压缩过滤器且格式为 zip / tar → `ZipArchiveSource`：列表从中央目录 / 条目头一次扫出；每次 `readEntry` 独立打开、按包内序号前进到目标再读——seekable zip 读取器的 `read_data_skip` 是空操作、条目按本地头偏移排序（重开后序号稳定），未压缩 tar 的跳过走 lseek——无共享游标、无锁，天然可并发；千页 stored cbz 实测单次随机读最大 5.4ms（Debug）。其余格式（7z / rar / 压缩 tar）仍走旧的 `ArchiveSource`：构造时全量扫包建列表（在 `Browser` 的后台线程），读取走单个持久 reader（游标）+ 互斥锁，目标在游标之后就接着扫，回退才重开。libarchive 句柄封装为 `ArchiveReader`（RAII，出错即作废句柄），列表逻辑两类来源共用。
+- **问题**（zip / 未压缩 tar 已解决，7z / rar / 压缩 tar 仍存在）：「单游标 + 一把锁」只在访问单调向前时成立，而实际访问经常回退：
   - 两个预读线程同时抢 i+1、i+2，i+2 先拿到锁则 i+1 变成回退 → 重开；
   - 动画条目 `currentAnimation()` 二次读取同一 entry，游标已越过 → 每个包内 GIF 都从头重扫；
   - 打开时第 0 页的「向后 1 张」环绕到最后一张，一打开就扫到包尾；

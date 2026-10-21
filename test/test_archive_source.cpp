@@ -5,6 +5,7 @@
 #include <QTemporaryDir>
 
 #include "source/ArchiveSource.h"
+#include "source/ZipArchiveSource.h"
 #include "support/TestData.h"
 
 class TestArchiveSource : public QObject {
@@ -15,6 +16,9 @@ private slots:
     void sequentialAndRandomReads();
     void duplicateNamesStayDistinct();
     void reportsOpenErrorForGarbageFile();
+    void readsStreamingFormats();
+    void probesAccessByContentNotSuffix();
+    void openArchiveDispatchesByFormat();
 };
 
 void TestArchiveSource::listsImagesInNaturalOrder() {
@@ -122,6 +126,97 @@ void TestArchiveSource::reportsOpenErrorForGarbageFile() {
     entries.append({QStringLiteral("a.png"), testdata::makePng(2, 2)});
     testdata::makeZip(ok, entries);
     QVERIFY(ArchiveSource(ok).openError().isEmpty());
+}
+
+// 顺序解压的格式(7z / tar.gz)仍由单游标的 ArchiveSource 读:回退重开也要正确。
+void TestArchiveSource::readsStreamingFormats() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QList<QPair<QString, QByteArray>> entries;
+    for (const int n : {2, 3, 1})
+        entries.append({QStringLiteral("page%1.png").arg(n), testdata::makePng(2 + n, 2)});
+
+    const QString sevenZip = dir.filePath("pages.7z");
+    testdata::makeArchive(sevenZip, entries, testdata::ArchiveFormat::SevenZip);
+    const QString tgz = dir.filePath("pages.tar.gz");
+    testdata::makeArchive(tgz, entries, testdata::ArchiveFormat::TarGz);
+
+    for (const QString& path : {sevenZip, tgz}) {
+        ArchiveSource source(path);
+        QVERIFY2(source.openError().isEmpty(), qPrintable(source.openError()));
+        QCOMPARE(source.count(), 3);
+        for (const int i : {2, 0, 1, 1, 2}) {
+            QCOMPARE(QImage::fromData(source.readEntry(i)).width(), 2 + (i + 1));
+        }
+    }
+}
+
+// 读取策略看 libarchive 探测到的实际格式,不看后缀。
+void TestArchiveSource::probesAccessByContentNotSuffix() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QList<QPair<QString, QByteArray>> entries;
+    entries.append({QStringLiteral("a.png"), testdata::makePng(2, 2)});
+
+    const QString zipAsCbr = dir.filePath("comic.cbr");  // 后缀撒谎:cbr 里装的是 zip
+    testdata::makeZip(zipAsCbr, entries);
+    QCOMPARE(probeArchiveAccess(zipAsCbr), ArchiveAccess::Random);
+
+    const QString tar = dir.filePath("a.tar");
+    testdata::makeArchive(tar, entries, testdata::ArchiveFormat::Tar);
+    QCOMPARE(probeArchiveAccess(tar), ArchiveAccess::Random);
+
+    const QString tgz = dir.filePath("a.tgz");
+    testdata::makeArchive(tgz, entries, testdata::ArchiveFormat::TarGz);
+    QCOMPARE(probeArchiveAccess(tgz), ArchiveAccess::Streaming);
+
+    const QString sevenZipAsZip = dir.filePath("a.zip");  // 后缀撒谎:zip 里装的是 7z
+    testdata::makeArchive(sevenZipAsZip, entries, testdata::ArchiveFormat::SevenZip);
+    QCOMPARE(probeArchiveAccess(sevenZipAsZip), ArchiveAccess::Streaming);
+
+    const QString emptyZip = dir.filePath("empty.zip");  // 空包也能判定格式
+    testdata::makeZip(emptyZip, {});
+    QCOMPARE(probeArchiveAccess(emptyZip), ArchiveAccess::Random);
+
+    const QString garbage = dir.filePath("garbage.zip");
+    QFile file(garbage);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("this is not an archive");
+    file.close();
+    QCOMPARE(probeArchiveAccess(garbage), ArchiveAccess::Unreadable);
+    QCOMPARE(probeArchiveAccess(dir.filePath("missing.zip")), ArchiveAccess::Unreadable);
+}
+
+void TestArchiveSource::openArchiveDispatchesByFormat() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QList<QPair<QString, QByteArray>> entries;
+    entries.append({QStringLiteral("a.png"), testdata::makePng(5, 2)});
+
+    const QString zipAsCbr = dir.filePath("comic.cbr");
+    testdata::makeZip(zipAsCbr, entries);
+    const std::unique_ptr<ImageSource> zip = openArchive(zipAsCbr);
+    QVERIFY(dynamic_cast<ZipArchiveSource*>(zip.get()) != nullptr);  // 随机读路径
+    QCOMPARE(zip->count(), 1);
+    QCOMPARE(QImage::fromData(zip->readEntry(0)).width(), 5);
+
+    const QString sevenZip = dir.filePath("a.7z");
+    testdata::makeArchive(sevenZip, entries, testdata::ArchiveFormat::SevenZip);
+    const std::unique_ptr<ImageSource> stream = openArchive(sevenZip);
+    QVERIFY(dynamic_cast<ZipArchiveSource*>(stream.get()) == nullptr);
+    QVERIFY(dynamic_cast<ArchiveSource*>(stream.get()) != nullptr);  // 顺序读路径
+    QCOMPARE(stream->count(), 1);
+    QCOMPARE(QImage::fromData(stream->readEntry(0)).width(), 5);
+
+    const QString garbage = dir.filePath("garbage.cbz");
+    QFile file(garbage);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("this is not an archive");
+    file.close();
+    const std::unique_ptr<ImageSource> bad = openArchive(garbage);
+    QVERIFY(bad != nullptr);
+    QVERIFY(!bad->openError().isEmpty());
+    QCOMPARE(bad->count(), 0);
 }
 
 QTEST_GUILESS_MAIN(TestArchiveSource)

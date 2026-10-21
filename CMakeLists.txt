@@ -21,7 +21,9 @@ find_package(libraw CONFIG REQUIRED)
 add_library(viewer-core STATIC
     src/source/ImageSource.cpp
     src/source/FolderSource.cpp
+    src/source/ArchiveReader.cpp
     src/source/ArchiveSource.cpp
+    src/source/ZipArchiveSource.cpp
     src/decode/ImageDecoder.cpp
     src/decode/FtypBox.cpp
     src/decode/HeifDecoder.cpp

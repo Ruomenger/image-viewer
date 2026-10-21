@@ -58,7 +58,7 @@ Browser::OpenResult Browser::buildSource(const QString& path) {
     if (info.isDir()) {
         result.source = std::make_shared<FolderSource>(path);
     } else if (ImageSource::isArchive(path)) {
-        result.source = std::make_shared<ArchiveSource>(path);
+        result.source = openArchive(path);  // 按实际格式选 Zip / 流式来源
     } else if (info.isFile()) {
         auto folder = std::make_shared<FolderSource>(info.absolutePath());
         result.entry = std::max(0, folder->indexOf(info.absoluteFilePath()));

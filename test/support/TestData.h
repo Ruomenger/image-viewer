@@ -14,7 +14,17 @@ QByteArray makePng(int width, int height);
 // 把一张 width×height 的 PNG 写入文件。
 void writePng(const QString& path, int width, int height);
 
-// 用 libarchive 创建一个 zip,entries 为 (entryName, bytes)。
-void makeZip(const QString& zipPath, const QList<QPair<QString, QByteArray>>& entries);
+// 用 libarchive 现写的压缩包格式。Zip 默认 deflate;ZipStored 不压缩(漫画 cbz 常见);
+// Tar 未压缩(可随机读);TarGz / SevenZip 需顺序解压(流式)。
+enum class ArchiveFormat { Zip, ZipStored, Tar, TarGz, SevenZip };
+
+// 用 libarchive 创建压缩包,entries 为 (entryName, bytes),按给定顺序写入。
+void makeArchive(const QString& path, const QList<QPair<QString, QByteArray>>& entries,
+                 ArchiveFormat format);
+
+// 创建一个 zip(deflate)。
+inline void makeZip(const QString& zipPath, const QList<QPair<QString, QByteArray>>& entries) {
+    makeArchive(zipPath, entries, ArchiveFormat::Zip);
+}
 
 }  // namespace testdata

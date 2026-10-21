@@ -25,10 +25,29 @@ void writePng(const QString& path, int width, int height) {
     image.save(path, "PNG");
 }
 
-void makeZip(const QString& zipPath, const QList<QPair<QString, QByteArray>>& entries) {
+void makeArchive(const QString& path, const QList<QPair<QString, QByteArray>>& entries,
+                 ArchiveFormat format) {
     struct archive* a = archive_write_new();
-    archive_write_set_format_zip(a);
-    archive_write_open_filename(a, zipPath.toUtf8().constData());
+    switch (format) {
+        case ArchiveFormat::Zip:
+            archive_write_set_format_zip(a);
+            break;
+        case ArchiveFormat::ZipStored:
+            archive_write_set_format_zip(a);
+            archive_write_zip_set_compression_store(a);
+            break;
+        case ArchiveFormat::Tar:
+            archive_write_set_format_pax_restricted(a);
+            break;
+        case ArchiveFormat::TarGz:
+            archive_write_set_format_pax_restricted(a);
+            archive_write_add_filter_gzip(a);
+            break;
+        case ArchiveFormat::SevenZip:
+            archive_write_set_format_7zip(a);
+            break;
+    }
+    archive_write_open_filename(a, path.toUtf8().constData());
 
     for (const auto& [name, bytes] : entries) {
         struct archive_entry* entry = archive_entry_new();

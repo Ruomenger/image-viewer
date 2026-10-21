@@ -133,10 +133,18 @@
         `next()` 立即返回（实测 0ms；故意在 UI 线程解码时 526ms、测试失败，已验证）；3000×2000 图先出
         Fit 档，放到 100% 后换成原图且缩放不动。`test_image_view`：场景 = 原图矩形、换图不动变换与中心、
         拉伸判定只发一次、原图 / 动画不发。**待真机手测**：24MP 照片在 Retina 屏上放大后的清晰度
-- [ ] **压缩包 · 按实际格式分派 + `ZipArchiveSource`**（§4.5）：按 `archive_format()` /
-      `archive_filter_code()` 分派，不信后缀；zip / cbz / 未压缩 tar 无状态随机读，无共享游标、无全局锁
-      - 验收：两线程乱序并发读全部正确；后缀为 `.cbr` 的 zip 走随机读路径；千页 cbz 单次随机读耗时
-        实测并记录（超过约 10ms 则换 libzip / minizip-ng）
+- [x] **压缩包 · 按实际格式分派 + `ZipArchiveSource`**（§4.5）：`openArchive()` 用 libarchive 读第一个
+      header 后按 `archive_filter_code()` / `archive_format()` 分派，不信后缀：无压缩过滤器且格式为 zip /
+      tar → `ZipArchiveSource`，其余（7z / rar / 压缩 tar）暂走旧的单游标 `ArchiveSource`，由下一条替换。
+      `ZipArchiveSource` 每次 `readEntry` 独立打开、按包内序号 `next_header` 前进到目标再读——seekable zip
+      读取器下前进只是 seek（`read_data_skip` 为空操作，条目按本地头偏移排序，重开后序号稳定），未压缩
+      tar 的跳过走 lseek；无共享游标、无锁。libarchive 句柄封装为 `ArchiveReader`（RAII，出错即作废；
+      读 header 的 `ARCHIVE_WARN` 视为成功），列表逻辑 `listArchiveImages()` 与旧类共用
+      - 验收 ✅：两线程 + 主线程按三种不同顺序并发读全部 24 个条目都正确；`.cbr` 里装 zip → 随机读路径、
+        `.zip` 里装 7z → 流式路径、空包也能判定、垃圾文件 → `Unreadable` 且 `openError` 非空；未压缩 tar
+        可随机读；7z / tar.gz 由旧类读取（含回退重开）正确。**千页 cbz 实测**（1000 × 20KB stored，Debug，
+        Apple Silicon）：建列表 7.3ms，随机读（含最后一页，要前进过 999 个条目头）最大 5.4ms、平均 3.9ms，
+        在 10ms 阈值内，不换 libzip；测试留 200ms 宽松上限只拦数量级退化
 - [ ] **压缩包 · `StreamArchiveSource` + `ByteStore`**（§4.5）：7z / rar / 压缩 tar 后台顺序抽取一遍，
       编码字节进 `ByteStore`（内存 512MB 内常驻，超出落会话临时目录、关闭即删）；`readEntry` 等目标
       条目抽取到位；需解压才能列表的格式，列表与抽取同一遍并报进度

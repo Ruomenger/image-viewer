@@ -35,7 +35,7 @@ scripts/tidy.sh [--strict]     # clang-tidy，需先配置构建目录；--stric
 
 ## 架构
 
-- `src/source/`：`ImageSource`（`count` / `entryName` / `readEntry` / `openError`），文件夹与压缩包对上层一致。
+- `src/source/`：`ImageSource`（`count` / `entryName` / `readEntry` / `openError`），文件夹与压缩包对上层一致。压缩包经 `openArchive()` 按 libarchive 探测到的实际格式分派（不信后缀）：zip / 未压缩 tar → `ZipArchiveSource`（每次读独立打开、按序号 seek 到目标，无锁可并发）；7z / rar / 压缩 tar → 旧的单游标 `ArchiveSource`（待 `StreamArchiveSource` 替换）。libarchive 句柄封装在 `ArchiveReader`。
 - `src/decode/`：`decodeImage(bytes, nameHint, target)` 是唯一的解码入口（专用解码器注册表 + QImageReader 兜底），按目标尺寸解码并返回 `DecodedImage`（显示格式的图 + 原图尺寸 + 动画字节）；`decodableExtensions()` 是「哪些后缀算图片」的唯一来源。
 - `src/schedule/`：`DecodeScheduler` 是读取 + 解码的唯一入口（P0 当前页 > P1 翻页方向 > P2 反方向 > P3 缩略图，按 `(EntryKey, 档)` 在途去重，结果写缓存后以信号回 UI 线程）。
 - `src/cache/`：`ImageCache` 按档（Thumb / Fit / Full）分道 LRU，键 `ImageKey` = (来源 id, 列表下标, 档)。
@@ -43,7 +43,7 @@ scripts/tidy.sh [--strict]     # clang-tidy，需先配置构建目录；--stric
 - 以上编译成无 GUI 的 `viewer-core` 静态库，app 和测试都链接它；`MainWindow` / `ImageView` 只做展示，编成 `viewer-ui` 静态库（离屏测试 `test_image_view` / `test_main_window` 也链接它）。
 - `ImageView` 的场景坐标 = 原图像素：显示图可能是缩小的 Fit 档，按「原图 / 显示图」放大铺满；视图缩放系数即相对原图的缩放比例。
 
-> **M2.5 重构进行中**：改 `browse/` `cache/` `source/` 之前先读 `doc/DESIGN.md` §3、§4、§8。按尺寸档解码、`DecodeScheduler`、分档缓存、异步 `Browser`、App 层（原图像素坐标、Fit 目标、Full 档）已落地；剩下单游标的 `ArchiveSource` 按格式拆成 `ZipArchiveSource` / `StreamArchiveSource`。
+> **M2.5 重构进行中**：改 `browse/` `cache/` `source/` 之前先读 `doc/DESIGN.md` §3、§4、§8。按尺寸档解码、`DecodeScheduler`、分档缓存、异步 `Browser`、App 层（原图像素坐标、Fit 目标、Full 档）已落地，压缩包按实际格式分派 + `ZipArchiveSource` 也已落地；剩下 `StreamArchiveSource` + `ByteStore`（7z / rar / 压缩 tar 后台抽取一遍）取代旧的单游标 `ArchiveSource`，然后清理。
 
 测试用 Qt Test（`test/`）：PNG 用 `QImage` 现生成，zip 用 libarchive 现写（`test/support/TestData`），各格式真实样本放在 `test/data/`；不要手写字节。
 

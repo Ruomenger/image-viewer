@@ -9,8 +9,9 @@ Qt is consumed as a **prebuilt** install; vcpkg (manifest mode) handles the rest
 
 > Status: M0–M2 done (browsing core, LRU cache + prefetch, HEIC/AVIF/RAW, GIF/WebP
 > animation). In progress: M2.5 async pipeline rework — size-tiered decoding, the
-> `DecodeScheduler`, the async `Browser` and the app switch are in; per-format archive
-> sources remain. See [doc/TODO.md](doc/TODO.md).
+> `DecodeScheduler`, the async `Browser`, the app switch and format-dispatched zip random
+> access (`ZipArchiveSource`) are in; the streaming archive source (7z / rar / compressed
+> tar) remains. See [doc/TODO.md](doc/TODO.md).
 > Currently targets **macOS**; Windows/Linux to follow.
 
 ---
@@ -88,7 +89,8 @@ src/
   main.cpp                 entry point
   MainWindow.{h,cpp}       menus, navigation, drag&drop, open-path dispatch (viewer-ui)
   ImageView.{h,cpp}        QGraphicsView in original-pixel coordinates: zoom / pan / fit (viewer-ui)
-  source/                  where bytes come from: ImageSource / FolderSource / ArchiveSource
+  source/                  where bytes come from: ImageSource / FolderSource / ZipArchiveSource
+                           (random access) / ArchiveSource (sequential, to be replaced)
   decode/                  bytes -> QImage: decoder registry (libavif / libheif / LibRaw) + QImageReader
   schedule/                DecodeScheduler: one priority queue for every read + decode
   cache/                   ImageCache: per-tier (Thumb / Fit / Full) LRU
